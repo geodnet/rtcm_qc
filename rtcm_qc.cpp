@@ -282,9 +282,7 @@ static void test_rtcm(const char* fname)
                 tow = rtcm->tow;
                 dt = tow - lastTime;
             }
-            if (rtcm->type == 4054)
-                printf("%4i,%10.3f,%i,%4i\n", rtcm->type, tow, rtcm->sync, rtcm->subtype);
-            else if (rtcm_obs_type(rtcm->type))
+            if (rtcm_obs_type(rtcm->type))
             {
                 if (!rtcm->sync && ms_time_cur >= 0 && ms_time_pre >= 0 && mObsType[ms_time_cur] && mObsType[ms_time_pre] && mObsType[ms_time_cur] < mObsType[ms_time_pre])
                 {

@@ -137,7 +137,7 @@ extern int decode_type1006_(unsigned char *buff, int len, int *staid, double *po
     }
     return 5;
 }
-extern int add_rtcm_to_buff(rtcm_buff_t* rtcm, unsigned char data)
+static int add_rtcm_to_buff(rtcm_buff_t* rtcm, unsigned char data)
 {
     if (rtcm->sync == 0) rtcm->slen = 0;
     rtcm->type=0;
@@ -248,32 +248,6 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
                 if (rtcm->cels[j]) rtcm->ncel++;
             }
         }
-		//printf("%10.3f,%4i,%4i,%4i,%4i,%4i,%4i", rtcm->tow, rtcm->type, nbyte, rtcm->len + 3, rtcm->ncel, rtcm->nsat, rtcm->nsig);
-        //for (j = 0; j < rtcm->nsig; ++j)
-        ///{
-        //    printf(",%2i", rtcm->sigs[j]);
-        //}
-        //printf("\n");
-
-#if 0 //_WIN32
-        printf("%10.3f,%4i,%4i,%4i,%4i,%4i,%4i,SAT:", rtcm->tow, rtcm->type, nbyte, rtcm->len + 3, rtcm->nsat, rtcm->nsig, rtcm->ncel);
-        for (j = 0; j < 64; ++j)
-        {
-            if (rtcm->sats[j])
-            {
-                printf(",%2i", j + 1);
-            }
-        }
-        printf(",SIG:");
-        for (j = 0; j < 32; ++j)
-        {
-            if (rtcm->sigs[j])
-            {
-                printf(",%2i", j + 1);
-            }
-        }
-        printf("\n");
-#endif
         /* MSM4 => nsat * (8  +10   ) + ncel * (15+22+ 4+1+ 6   ) = nsat *18 + ncel *48 */
         /* MSM5 => nsat * (8+4+10+14) + ncel * (15+22+ 4+1+ 6+15) = nsat *36 + ncel *63 */
         /* MSM6 => nsat * (8  +10   ) + ncel * (20+24+10+1+10   ) = nsat *18 + ncel *65 */
@@ -294,6 +268,14 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
         rtcm->sys = 'R';
         rtcm->prn = prn;
     }
+    if (rtcm->type == 1041)
+    {
+        int prn   =getbitu_(rtcm->buff,i, 4);              i+= 6;
+        int week  =getbitu_(rtcm->buff,i,10);              i+=10;
+        rtcm->wk  =week+2048;
+        rtcm->sys = 'I';
+        rtcm->prn = prn;
+    }		
     if (rtcm->type == 1042)
     {
         int prn   =getbitu_(rtcm->buff,i, 6);              i+= 6;
@@ -313,6 +295,8 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
         int prn   =getbitu_(rtcm->buff,i, 6);              i+= 6;
         int week  =getbitu_(rtcm->buff,i,12);              i+=12; /* gst-week */
         rtcm->wk  =week+1024 ; /* gal-week = gst-week + 1024 */
+        rtcm->sys = 'E';
+        rtcm->prn = prn;
     }
     if (rtcm->type == 1005)
     {
@@ -325,18 +309,6 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
     if (rtcm->type == 1033)
     {
         ret = decode_type1033_(rtcm->buff, rtcm->len, rtcm->staname, rtcm->antdes, rtcm->antsno, rtcm->rectype, rtcm->recver, rtcm->recsno);
-    }
-    if (rtcm->type == 4054)
-    {
-        i = 0;
-        i += 8;
-        i += 6;
-        i += 10;
-        int type = getbitu_(rtcm->buff, i, 12); i += 12; /* message type */
-        int ver = getbitu_(rtcm->buff, i, 2); i += 2; /* version */
-        rtcm->subtype = getbitu_(rtcm->buff, i, 9); i += 9; /* subtype */
-        rtcm->tow_4054 = getbitu_(rtcm->buff, i, 20); i += 20; /* time */
-        int sync = getbitu_(rtcm->buff, i, 1); i += 1; /* sync */
     }
     rtcm->slen += rtcm->len + 3;
     return ret;
