@@ -239,16 +239,16 @@ static void test_rtcm(const char* fname)
     std::vector<std::string> vTypeGapOutput;
     double start_time =-1;
     double end_time = -1;
-    int type = 0;
-    double lastTime_4054 = 0;
     double tow = 0;
     double dt = 0;
+    int sync_count = 0;
+    int ms_time_cur =-1;
+    int ms_time_pre =-1;
     std::map<int, int> mObsType;
     while (!feof(fRTCM))
     {
         if ((data = fgetc(fRTCM)) == EOF) break;
         int ret = input_rtcm3_type(rtcm, (unsigned char)data);
-        type = rtcm->type;
         if (rtcm->type > 0) /* rtcm data */
         {
             if (rtcm->crc == 1)
@@ -256,55 +256,48 @@ static void test_rtcm(const char* fname)
                 ++numofcrc;
                 continue;
             }
-            int ms_time0 = (int)(tow * 1000);
-            int ms_time = (int)(rtcm->tow * 1000);
             if (rtcm_obs_type(rtcm->type))
             {
                 if (start_time < 0) start_time = rtcm->tow;
                 end_time = rtcm->tow;
-                int hour = rtcm->tow / 3600;
-                double sec = rtcm->tow - 3600 * hour;
-                hour %= 24;
-                int mm = sec / 60;
-                sec -= mm * 60;
-                //printf("%10.3f,%2i,%2i,%2i,%4i,%4i,%4i\n", rtcm->tow, hour, mm, (int)sec, rtcm->type, rtcm->nbyte, numofepoch);
+                ms_time_cur = (int)(rtcm->tow * 1000);
                 dt = rtcm->tow - tow;
                 if (dt < -(7 * 24 * 1800)) dt += 7 * 24 * 3600.0;
                 if (dt < 0.0)
                 {
                     ++numofmisorder;
                 }
-                mObsType[ms_time]++;
-                tow = rtcm->tow;
-            }
-            if (rtcm->type == 4054)
-            {
-                type = rtcm->type;
-                tow = rtcm->tow_4054;
-                dt = tow - lastTime_4054;
-            }
-            else
-            {
-                type = rtcm->type;
+                else if (dt > 0.001)
+                {
+                    ms_time_pre = (int)(tow * 1000);
+                    if (sync_count)
+                        sync_count = 0;
+                }
+                ++sync_count;
+                if (!rtcm->sync)
+                {
+                    mObsType[ms_time_cur] = sync_count;
+                    sync_count = 0;
+                }
                 tow = rtcm->tow;
                 dt = tow - lastTime;
             }
             if (rtcm->type == 4054)
-                printf("%4i,%10.3f,%i,%4i\n", type, tow, rtcm->sync, rtcm->subtype);
+                printf("%4i,%10.3f,%i,%4i\n", rtcm->type, tow, rtcm->sync, rtcm->subtype);
             else if (rtcm_obs_type(rtcm->type))
             {
-                if (!rtcm->sync && mObsType[ms_time] && mObsType[ms_time0] && mObsType[ms_time] != mObsType[ms_time0])
+                if (!rtcm->sync && ms_time_cur >= 0 && ms_time_pre >= 0 && mObsType[ms_time_cur] && mObsType[ms_time_pre] && mObsType[ms_time_cur] < mObsType[ms_time_pre])
                 {
                     ++numofsync;
-                    printf("%4i,%10.3f,%i,%4i*\n", type, tow, rtcm->sync, mObsType[ms_time]);
+                    printf("%4i,%10.3f,%i,%4i*\n", rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur]);
                 }
                 else
                 {
-                    printf("%4i,%10.3f,%i,%4i\n", type, tow, rtcm->sync, mObsType[ms_time]);
+                    printf("%4i,%10.3f,%i,%4i\n", rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur]);
                 }
             }
             else 
-                printf("%4i,%10.3f,%i,%4i\n", type, tow, rtcm->sync, 0);
+                printf("%4i,%10.3f,%i,%4i\n", rtcm->type, tow, rtcm->sync, 0);
             if (ret == 1)
             {
                 if (numofepoch > 0)
@@ -385,15 +378,15 @@ static void test_rtcm(const char* fname)
             int i = 0;
             for (; i < vObsType.size(); ++i)
             {
-                if (vObsType[i].type == type)
+                if (vObsType[i].type == rtcm->type)
                 {
                     if (vObsType[i].numofepoch > 0)
                     {
                         dt = tow - vObsType[i].time;
-                        if (dt > 1.5 && (rtcm_obs_type(rtcm->type)||rtcm->type==4054))
+                        if (dt > 1.5 && rtcm_obs_type(rtcm->type))
                         {
                             char temp[255] = { 0 };
-                            sprintf(temp, "%10.3f,%10.3f,%6i,%4i\r\n", tow, dt, vObsType[i].numofepoch, type);
+                            sprintf(temp, "%10.3f,%10.3f,%6i,%4i\r\n", tow, dt, vObsType[i].numofepoch, rtcm->type);
                             vTypeGapOutput.push_back(temp);
                         }
                     }
@@ -405,7 +398,7 @@ static void test_rtcm(const char* fname)
             if (i == vObsType.size())
             {
                 rtcm_obs_t temp = { 0 };
-                temp.type = type;
+                temp.type = rtcm->type;
                 temp.time = tow;
                 temp.numofepoch = 1;
                 vObsType.push_back(temp);
@@ -414,8 +407,6 @@ static void test_rtcm(const char* fname)
     }
     if (end_time < start_time) end_time += 7 * 24 * 3600;
     int total_epoch = (int)(end_time - start_time + 1);
-    //printf("rtcm stats for %s,%10.3f,%10.3f,%i,%i,%i,%7.3f,%i\r\n", fname, start_time, end_time, total_epoch, numofepoch, total_epoch - numofepoch, 100 - (total_epoch > 0) ? (numofepoch * 100.0 / total_epoch) : (0), numofepoch_bad);
-    //printf("%s\n%s\n%s\n%s\n%s\n%s\n", rtcm->staname, rtcm->antdes, rtcm->antsno, rtcm->rectype, rtcm->recver, rtcm->recsno);
     if (vObsType.size() > 0)
     {
         printf("RTCM TYPE Count\n");
