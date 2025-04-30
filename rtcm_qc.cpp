@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <vector>
+#include <map>
 
 #include "rtcm_buff.h"
 
@@ -224,6 +225,8 @@ static void test_rtcm(const char* fname)
     int data = 0;
     rtcm_buff_t gRTCM_Buf = { 0 };
     rtcm_buff_t* rtcm = &gRTCM_Buf;
+    unsigned long numofsync = 0;
+    unsigned long numofmisorder = 0;
     unsigned long numofcrc = 0;
     unsigned long numofepoch = 0;
     unsigned long numofepoch_bad = 0;
@@ -240,6 +243,7 @@ static void test_rtcm(const char* fname)
     double lastTime_4054 = 0;
     double tow = 0;
     double dt = 0;
+    std::map<int, int> mObsType;
     while (!feof(fRTCM))
     {
         if ((data = fgetc(fRTCM)) == EOF) break;
@@ -252,6 +256,8 @@ static void test_rtcm(const char* fname)
                 ++numofcrc;
                 continue;
             }
+            int ms_time0 = (int)(tow * 1000);
+            int ms_time = (int)(rtcm->tow * 1000);
             if (rtcm_obs_type(rtcm->type))
             {
                 if (start_time < 0) start_time = rtcm->tow;
@@ -262,10 +268,18 @@ static void test_rtcm(const char* fname)
                 int mm = sec / 60;
                 sec -= mm * 60;
                 //printf("%10.3f,%2i,%2i,%2i,%4i,%4i,%4i\n", rtcm->tow, hour, mm, (int)sec, rtcm->type, rtcm->nbyte, numofepoch);
+                dt = rtcm->tow - tow;
+                if (dt < -(7 * 24 * 1800)) dt += 7 * 24 * 3600.0;
+                if (dt < 0.0)
+                {
+                    ++numofmisorder;
+                }
+                mObsType[ms_time]++;
+                tow = rtcm->tow;
             }
             if (rtcm->type == 4054)
             {
-                type = rtcm->subtype + rtcm->type * 1000;
+                type = rtcm->type;
                 tow = rtcm->tow_4054;
                 dt = tow - lastTime_4054;
             }
@@ -275,7 +289,22 @@ static void test_rtcm(const char* fname)
                 tow = rtcm->tow;
                 dt = tow - lastTime;
             }
-            printf("%8i,%10.3f\n", type, tow);
+            if (rtcm->type == 4054)
+                printf("%4i,%10.3f,%i,%4i\n", type, tow, rtcm->sync, rtcm->subtype);
+            else if (rtcm_obs_type(rtcm->type))
+            {
+                if (!rtcm->sync && mObsType[ms_time] && mObsType[ms_time0] && mObsType[ms_time] != mObsType[ms_time0])
+                {
+                    ++numofsync;
+                    printf("%4i,%10.3f,%i,%4i*\n", type, tow, rtcm->sync, mObsType[ms_time]);
+                }
+                else
+                {
+                    printf("%4i,%10.3f,%i,%4i\n", type, tow, rtcm->sync, mObsType[ms_time]);
+                }
+            }
+            else 
+                printf("%4i,%10.3f,%i,%4i\n", type, tow, rtcm->sync, 0);
             if (ret == 1)
             {
                 if (numofepoch > 0)
@@ -396,15 +425,17 @@ static void test_rtcm(const char* fname)
         }
     }
     printf("%6u, failed in CRC check\r\n", numofcrc);
-    double midXYZ[3] = { 0 };
-    for (int i = 0; i < vxyz.size(); ++i)
-    {
-        midXYZ[0] += vxyz[i].x;
-        midXYZ[1] += vxyz[i].y;
-        midXYZ[2] += vxyz[i].z;
-    }
+    printf("%6u, sync count difference from previous epoch\r\n", numofsync);
+    printf("%6u, misorder messages\r\n", numofmisorder);
     if (vxyz.size() > 0)
     {
+        double midXYZ[3] = { 0 };
+        for (int i = 0; i < vxyz.size(); ++i)
+        {
+            midXYZ[0] += vxyz[i].x;
+            midXYZ[1] += vxyz[i].y;
+            midXYZ[2] += vxyz[i].z;
+        }
         midXYZ[0] /= vxyz.size();
         midXYZ[1] /= vxyz.size();
         midXYZ[2] /= vxyz.size();
@@ -465,8 +496,6 @@ static void test_rtcm(const char* fname)
 
 int main(int argc, const char* argv[])
 {
-    //test_rtcm("E:\\cmc_new\\rtcmCheck_231119\\rtcmCheck_SH2\\rtkUser_SH\\JSHN\\VRS_JSHN-2023-11-19-08-23-27.bin");
-    //return 0;
     if (argc > 1)
     {
         if (argc > 4)

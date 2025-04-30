@@ -176,9 +176,10 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
     if ((rtcm->type == 1074 || rtcm->type == 1075 || rtcm->type == 1076 || rtcm->type == 1077)|| /* GPS */
         (rtcm->type == 1094 || rtcm->type == 1095 || rtcm->type == 1096 || rtcm->type == 1097)|| /* GAL */
         (rtcm->type == 1104 || rtcm->type == 1105 || rtcm->type == 1106 || rtcm->type == 1107)|| /* SBS */
-        (rtcm->type == 1114 || rtcm->type == 1115 || rtcm->type == 1116 || rtcm->type == 1117))   /* QZS */
+        (rtcm->type == 1114 || rtcm->type == 1115 || rtcm->type == 1116 || rtcm->type == 1117)|| /* QZS */
+        (rtcm->type == 1134 || rtcm->type == 1135 || rtcm->type == 1136 || rtcm->type == 1137))  /* IRN */
     {
-        /* GPS, GAL, SBS, QZS */
+        /* GPS, GAL, SBS, QZS, IRN */
         rtcm->staid = getbitu_(rtcm->buff, i, 12);           i += 12;
         rtcm->tow   = getbitu_(rtcm->buff, i, 30) * 0.001;   i += 30;
         rtcm->sync  = getbitu_(rtcm->buff, i,  1);           i +=  1;
@@ -348,7 +349,8 @@ extern int rtcm_obs_type(int type)
         (type == 1094 || type == 1095 || type == 1096 || type == 1097) || /* GAL */
         (type == 1104 || type == 1105 || type == 1106 || type == 1107) || /* SBS */
         (type == 1114 || type == 1115 || type == 1116 || type == 1117) || /* QZS */
-        (type == 1124 || type == 1125 || type == 1126 || type == 1127))  /* BDS */
+        (type == 1124 || type == 1125 || type == 1126 || type == 1127) || /* BDS */
+        (type == 1134 || type == 1135 || type == 1136 || type == 1137))   /* IRN */
         return 1;
     else
         return 0;
