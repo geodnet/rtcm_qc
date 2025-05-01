@@ -440,7 +440,11 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
     }
     if (rtcm->type == 1033)
     {
-        ret = decode_type1033_(rtcm->buff, rtcm->len, rtcm->staname, rtcm->antdes, rtcm->antsno, rtcm->rectype, rtcm->recver, rtcm->recsno);
+        ret = decode_type1033_(rtcm->buff, rtcm->len, &rtcm->staid, rtcm->antdes, rtcm->antsno, rtcm->rectype, rtcm->recver, rtcm->recsno);
+    }
+    if (rtcm->type == 1230)
+    {
+        ret = decode_type1230_(rtcm->buff, rtcm->len, &rtcm->staid, &rtcm->glo_cp_align, rtcm->glo_cp_bias);
     }
     rtcm->slen += rtcm->len + 3;
     return ret;
@@ -503,10 +507,10 @@ extern int update_type_1005_1006_pos(uint8_t* buff, int nbyte, double* p)
     return ret;
 }
 /* decode type 1033: receiver and antenna descriptor -------------------------*/
-extern int decode_type1033_(uint8_t* buff, int len, char *staname, char* antdes, char* antsno, char* rectype, char* recver, char* recsno)
+extern int decode_type1033_(uint8_t* buff, int len, int* staid, char* antdes, char* antsno, char* rectype, char* recver, char* recsno)
 {
     char des[32]="",sno[32]="",rec[32]="",ver[32]="",rsn[32]="";
-    int i=24+12,j,staid,n,m,n1,n2,n3,setup;
+    int i=24+12,j,n,m,n1,n2,n3,setup;
     
     n =getbitu_(buff,i+12,8);
     m =getbitu_(buff,i+28+8*n,8);
@@ -515,7 +519,7 @@ extern int decode_type1033_(uint8_t* buff, int len, char *staname, char* antdes,
     n3=getbitu_(buff,i+52+8*(n+m+n1+n2),8);
     
     if (i+60+8*(n+m+n1+n2+n3)<=len*8) {
-        staid=getbitu_(buff,i,12); i+=12+8;
+        *staid=getbitu_(buff,i,12); i+=12+8;
         for (j=0;j<n&&j<31;j++) { 
             des[j]=(char)getbitu_(buff,i,8); i+=8;
         }
@@ -540,7 +544,6 @@ extern int decode_type1033_(uint8_t* buff, int len, char *staname, char* antdes,
         return -1;
     }
     
-    sprintf(staname,"%04d",staid);
     strncpy(antdes, des,n ); antdes [n] ='\0';
     strncpy(antsno, sno,m ); antsno [m] ='\0';
     strncpy(rectype,rec,n1); rectype[n1]='\0';
@@ -551,3 +554,31 @@ extern int decode_type1033_(uint8_t* buff, int len, char *staname, char* antdes,
     return 5;
 }
 
+/* decode type 1230: GLONASS L1 and L2 code-phase biases ---------------------*/
+static int decode_type1230_(uint8_t* buff, int len, int* staid, int* glo_cp_align, double* glo_cp_bias)
+{
+    /* GLONASS code-phase alignment (0:no,1:yes) */
+    /* GLONASS code-phase biases {1C,1P,2C,2P} (m) */
+
+    int i=24+12,j,align,mask,bias;
+    
+    if (i+20>=len*8) {
+        return -1;
+    }
+    *staid=getbitu_(buff,i,12); i+=12;
+    align =getbitu_(buff,i, 1); i+= 1+3;
+    mask  =getbitu_(buff,i, 4); i+= 4;
+    
+    *glo_cp_align=align;
+    for (j=0;j<4;j++) {
+        glo_cp_bias[j]=0.0;
+    }
+    for (j=0;j<4&&i+16<=len*8;j++) {
+        if (!(mask&(1<<(3-j)))) continue;
+        bias=getbits_(buff,i,16); i+=16;
+        if (bias!=-32768) {
+            glo_cp_bias[j]=bias*0.02;
+        }
+    }
+    return 5;
+}

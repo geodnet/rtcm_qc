@@ -287,15 +287,15 @@ static void test_rtcm(const char* fname)
                 if (!rtcm->sync && ms_time_cur >= 0 && ms_time_pre >= 0 && mObsType[ms_time_cur] && mObsType[ms_time_pre] && mObsType[ms_time_cur] < mObsType[ms_time_pre])
                 {
                     ++numofsync;
-                    printf("%4i,%10.3f,%i,%4i*\n", rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur]);
+                    printf("%4i,%4i,%10.3f,%i,%4i*\n", rtcm->staid, rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur]);
                 }
                 else
                 {
-                    printf("%4i,%10.3f,%i,%4i\n", rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur]);
+                    printf("%4i,%4i,%10.3f,%i,%4i\n", rtcm->staid, rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur]);
                 }
             }
             else 
-                printf("%4i,%10.3f,%i,%4i\n", rtcm->type, tow, rtcm->sync, 0);
+                printf("%4i,%4i,%10.3f,%i,%4i\n", rtcm->staid, rtcm->type, tow, rtcm->sync, 0);
             if (ret == 1)
             {
                 if (numofepoch > 0)
@@ -322,7 +322,7 @@ static void test_rtcm(const char* fname)
                 }
                 lastTime = rtcm->tow;
             }
-            if (ret == 5)
+            if (ret == 5 && (rtcm->type == 1005 || rtcm->type == 1006))
             {
                 xyz_t xyz = { 0 };
                 if ((rtcm->pos[0] * rtcm->pos[0] + rtcm->pos[1] * rtcm->pos[1] + rtcm->pos[2] * rtcm->pos[2]) < 0.1)
@@ -442,11 +442,11 @@ static void test_rtcm(const char* fname)
             stdXYZ[0] = sqrt(stdXYZ[0] / (vxyz.size() - 1));
             stdXYZ[1] = sqrt(stdXYZ[1] / (vxyz.size() - 1));
             stdXYZ[2] = sqrt(stdXYZ[2] / (vxyz.size() - 1));
-            printf("%.9f,%.9f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%i\n", midBLH[0] * 180 / PI, midBLH[1] * 180 / PI, midBLH[2], midXYZ[0], midXYZ[1], midXYZ[2], stdXYZ[0], stdXYZ[1], stdXYZ[2], (int)vxyz.size());
+            printf("%.9f,%.9f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%i,%i\n", midBLH[0] * 180 / PI, midBLH[1] * 180 / PI, midBLH[2], midXYZ[0], midXYZ[1], midXYZ[2], stdXYZ[0], stdXYZ[1], stdXYZ[2], (int)vxyz.size(), (int)vxyz_final.size());
         }
         else
         {
-            printf("%.9f,%.9f,%.4f,%.4f,%.4f,%.4f,%i\n", midBLH[0]*180/PI, midBLH[1] * 180 / PI, midBLH[2], midXYZ[0], midXYZ[1], midXYZ[2], (int)vxyz.size());
+            printf("%.9f,%.9f,%.4f,%.4f,%.4f,%.4f,%i,%i\n", midBLH[0]*180/PI, midBLH[1] * 180 / PI, midBLH[2], midXYZ[0], midXYZ[1], midXYZ[2], (int)vxyz.size(), (int)vxyz_final.size());
         }
         if (fabs(xyz_ref[0]) > 0.0 || fabs(xyz_ref[1]) > 0.0 || fabs(xyz_ref[2]) > 0.0)
         {
@@ -483,15 +483,37 @@ static void test_rtcm(const char* fname)
     return;
 }
 
-int main(int argc, const char* argv[])
+int main(int argc, char* argv[])
 {
     if (argc > 1)
     {
-        if (argc > 4)
+        std::vector<std::string> vFileName;
+        for (int i = 1; i < argc; ++i)
         {
-            xyz_ref[0] = atof(argv[2]);
-            xyz_ref[1] = atof(argv[3]);
-            xyz_ref[2] = atof(argv[4]);
+            char* temp = strchr(argv[i], '=');
+            if (temp) /* command */
+            {
+                temp[0] = '\0';
+                if (strstr(temp, "refxyz"))
+                {
+                    double xyz[3] = { 0 };
+                    int num = sscanf(temp + 1, "%lf,%lf,%lf", xyz + 0, xyz + 1, xyz + 2);
+                    if (num == 3)
+                    {
+                        xyz_ref[0] = xyz[0];
+                        xyz_ref[1] = xyz[1];
+                        xyz_ref[2] = xyz[2];
+                    }
+                }
+            }
+            else
+            {
+                vFileName.push_back(argv[i]);
+            }
+        }
+        for (int i = 0; i < (int)vFileName.size(); ++i)
+        {
+            test_rtcm(vFileName[i].c_str());
         }
         test_rtcm(argv[1]);
     }

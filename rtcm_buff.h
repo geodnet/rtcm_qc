@@ -32,12 +32,13 @@ typedef struct {        /* RTCM control struct type */
 	int half[64];
     unsigned char buff[MAX_RTCM_BUF_LEN]; /* message buffer */
     unsigned short wk;
-    char staname[5];
     char antdes[32];
     char antsno[32];
     char rectype[32];
     char recver[32];
     char recsno[32];
+    int glo_cp_align;
+    double glo_cp_bias[4];
     double tow;
     double pos[3];
 	int sync;
@@ -52,7 +53,8 @@ int input_rtcm3_type(rtcm_buff_t* rtcm, unsigned char data);
 int decode_type1005_(unsigned char* buff, int len, int* staid, double* pos);
 int decode_type1006_(unsigned char* buff, int len, int* staid, double* pos);
 int update_type_1005_1006_pos(uint8_t* buff, int nbyte, double* p);
-int decode_type1033_(uint8_t* buff, int len, char *staname, char* antdes, char* antsno, char* rectype, char* recver, char* recsno);
+int decode_type1033_(uint8_t* buff, int len, int* staid, char* antdes, char* antsno, char* rectype, char* recver, char* recsno);
+int decode_type1230_(uint8_t* buff, int len, int* staid, int* glo_cp_align, double* glo_cp_bias);
 
 unsigned int crc24q_(const unsigned char *buff, int len);
 void setbitu_(unsigned char *buff, int pos, int len, unsigned int data);
