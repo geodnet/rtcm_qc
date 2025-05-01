@@ -8,6 +8,42 @@
 
 #define RTCM3PREAMB 0xD3        /* rtcm ver.3 frame preamble */
 
+#define CLIGHT      299792458.0         /* speed of light (m/s) */
+#define RANGE_MS    (CLIGHT*0.001)      /* range in 1 ms */
+
+#define P2_10       0.0009765625          /* 2^-10 */
+#define P2_28       3.725290298461914E-09 /* 2^-28 */
+#define P2_34       5.820766091346740E-11 /* 2^-34 */
+#define P2_41       4.547473508864641E-13 /* 2^-41 */
+#define P2_46       1.421085471520200E-14 /* 2^-46 */
+#define P2_59       1.734723475976810E-18 /* 2^-59 */
+#define P2_66       1.355252715606880E-20 /* 2^-66 */
+
+#define P2_5        0.03125             /* 2^-5 */
+#define P2_6        0.015625            /* 2^-6 */
+#define P2_11       4.882812500000000E-04 /* 2^-11 */
+#define P2_15       3.051757812500000E-05 /* 2^-15 */
+#define P2_17       7.629394531250000E-06 /* 2^-17 */
+#define P2_19       1.907348632812500E-06 /* 2^-19 */
+#define P2_20       9.536743164062500E-07 /* 2^-20 */
+#define P2_21       4.768371582031250E-07 /* 2^-21 */
+#define P2_23       1.192092895507810E-07 /* 2^-23 */
+#define P2_24       5.960464477539063E-08 /* 2^-24 */
+#define P2_27       7.450580596923828E-09 /* 2^-27 */
+#define P2_29       1.862645149230957E-09 /* 2^-29 */
+#define P2_30       9.313225746154785E-10 /* 2^-30 */
+#define P2_31       4.656612873077393E-10 /* 2^-31 */
+#define P2_32       2.328306436538696E-10 /* 2^-32 */
+#define P2_33       1.164153218269348E-10 /* 2^-33 */
+#define P2_35       2.910383045673370E-11 /* 2^-35 */
+#define P2_38       3.637978807091710E-12 /* 2^-38 */
+#define P2_39       1.818989403545856E-12 /* 2^-39 */
+#define P2_40       9.094947017729280E-13 /* 2^-40 */
+#define P2_43       1.136868377216160E-13 /* 2^-43 */
+#define P2_48       3.552713678800501E-15 /* 2^-48 */
+#define P2_50       8.881784197001252E-16 /* 2^-50 */
+#define P2_55       2.775557561562891E-17 /* 2^-55 */
+
 static const unsigned int tbl_CRC24Q[]={
     0x000000,0x864CFB,0x8AD50D,0x0C99F6,0x93E6E1,0x15AA1A,0x1933EC,0x9F7F17,
     0xA18139,0x27CDC2,0x2B5434,0xAD18CF,0x3267D8,0xB42B23,0xB8B2D5,0x3EFE2E,
@@ -156,7 +192,8 @@ static int add_rtcm_to_buff(rtcm_buff_t* rtcm, unsigned char data)
 
 extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
 {
-    int ret = 0, i = 24, j = 0, mask = 0, is_obs = 0, nbyte = rtcm->nbyte;
+    int ret = 0, i = 24, j = 0, mask = 0, is_obs = 0, nbyte = rtcm->nbyte, is_msm4 = 0, is_msm5 = 0, is_msm6 = 0, is_msm7 = 0;
+    int rng=0,rng_m=0,prv=0,cpv=0,rate=0,rrv=0;
     if (rtcm->sync == 0) rtcm->slen = 0;
     if (add_rtcm_to_buff(rtcm, data) == 0) return 0;
     
@@ -217,6 +254,11 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
     }
     if (is_obs)
     {
+		is_msm4 = (rtcm->type==1074||rtcm->type==1084||rtcm->type==1094||rtcm->type==1104||rtcm->type==1114||rtcm->type==1124||rtcm->type==1134);
+		is_msm5 = (rtcm->type==1075||rtcm->type==1085||rtcm->type==1095||rtcm->type==1105||rtcm->type==1115||rtcm->type==1125||rtcm->type==1135);
+		is_msm6 = (rtcm->type==1076||rtcm->type==1086||rtcm->type==1096||rtcm->type==1106||rtcm->type==1116||rtcm->type==1126||rtcm->type==1136);
+		is_msm7 = (rtcm->type==1077||rtcm->type==1087||rtcm->type==1097||rtcm->type==1107||rtcm->type==1117||rtcm->type==1127||rtcm->type==1137);
+
         memset(rtcm->sats, 0, sizeof(rtcm->sats));
         memset(rtcm->sigs, 0, sizeof(rtcm->sigs));
         memset(rtcm->cels, 0, sizeof(rtcm->cels));
@@ -237,7 +279,12 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
             mask = getbitu_(rtcm->buff, i, 1); i += 1;
             if (mask) rtcm->sigs[rtcm->nsig++] = j;
         }
-        if (i + rtcm->nsat * rtcm->nsig > rtcm->len * 8) {
+		if (rtcm->nsat * rtcm->nsig>64)
+		{
+            /* error */
+            rtcm->nsat = rtcm->nsig = rtcm->ncel = 0;
+		}
+		else if (i + rtcm->nsat * rtcm->nsig > rtcm->len * 8) {
             /* error */
             rtcm->nsat = rtcm->nsig = rtcm->ncel = 0;
         }
@@ -247,11 +294,96 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
                 rtcm->cels[j] = getbitu_(rtcm->buff, i, 1); i += 1;
                 if (rtcm->cels[j]) rtcm->ncel++;
             }
-        }
-        /* MSM4 => nsat * (8  +10   ) + ncel * (15+22+ 4+1+ 6   ) = nsat *18 + ncel *48 */
-        /* MSM5 => nsat * (8+4+10+14) + ncel * (15+22+ 4+1+ 6+15) = nsat *36 + ncel *63 */
-        /* MSM6 => nsat * (8  +10   ) + ncel * (20+24+10+1+10   ) = nsat *18 + ncel *65 */
-        /* MSM7 => nsat * (8+4+10+14) + ncel * (20+24+10+1+10+15) = nsat *36 + ncel *80 */
+
+			if ((is_msm4 && (i+rtcm->nsat*18+rtcm->ncel*48)<=rtcm->len*8)||
+ 				(is_msm5 && (i+rtcm->nsat*36+rtcm->ncel*63)<=rtcm->len*8)||
+				(is_msm6 && (i+rtcm->nsat*18+rtcm->ncel*65)<=rtcm->len*8)||
+				(is_msm7 && (i+rtcm->nsat*36+rtcm->ncel*80)<=rtcm->len*8))
+			{
+
+				for (j=0;j<rtcm->nsat;j++) {
+					rtcm->r[j]=rtcm->rr[j]=0.0; rtcm->ex[j]=15;
+				}
+				for (j=0;j<rtcm->ncel;j++) rtcm->pr[j]=rtcm->cp[j]=rtcm->rrf[j]=-1E16;
+
+				/* MSM4 => nsat * (8  +10   ) + ncel * (15+22+ 4+1+ 6   ) = nsat *18 + ncel *48 */
+				/* MSM5 => nsat * (8+4+10+14) + ncel * (15+22+ 4+1+ 6+15) = nsat *36 + ncel *63 */
+				/* MSM6 => nsat * (8  +10   ) + ncel * (20+24+10+1+10   ) = nsat *18 + ncel *65 */
+				/* MSM7 => nsat * (8+4+10+14) + ncel * (20+24+10+1+10+15) = nsat *36 + ncel *80 */
+
+				/* decode satellite data */
+				for (j=0;j<rtcm->nsat;j++) { /* range */
+					rng  =getbitu_(rtcm->buff,i, 8); i+= 8;
+					if (rng!=255) rtcm->r[j]=rng*RANGE_MS;
+				}
+				if (is_msm5||is_msm7)
+				{
+					for (j=0;j<rtcm->nsat;j++) { /* extended info */
+						rtcm->ex[j]=getbitu_(rtcm->buff,i, 4); i+= 4;
+					}
+				}
+				for (j=0;j<rtcm->nsat;j++) {
+					rng_m=getbitu_(rtcm->buff,i,10); i+=10;
+					if (rtcm->r[j]!=0.0) rtcm->r[j]+=rng_m*P2_10*RANGE_MS;
+				}
+				if (is_msm5||is_msm7)
+				{
+					for (j=0;j<rtcm->nsat;j++) { /* phaserangerate */
+						rate =getbits_(rtcm->buff,i,14); i+=14;
+						if (rate!=-8192) rtcm->rr[j]=rate*1.0;
+					}
+				}
+				if (is_msm4||is_msm5)
+				{
+					/* decode signal data */
+					for (j=0;j<rtcm->ncel;j++) { /* pseudorange */
+						prv=getbits_(rtcm->buff,i,15); i+=15;
+						if (prv!=-16384) rtcm->pr[j]=prv*P2_24*RANGE_MS;
+					}
+					for (j=0;j<rtcm->ncel;j++) { /* phaserange */
+						cpv=getbits_(rtcm->buff,i,22); i+=22;
+						if (cpv!=-2097152) rtcm->cp[j]=cpv*P2_29*RANGE_MS;
+					}
+					for (j=0;j<rtcm->ncel;j++) { /* lock time */
+                        rtcm->lock[j]=getbitu_(rtcm->buff,i,4); i+=4;
+					}
+					for (j=0;j<rtcm->ncel;j++) { /* half-cycle amiguity */
+						rtcm->half[j]=getbitu_(rtcm->buff,i,1); i+=1;
+					}
+					for (j=0;j<rtcm->ncel;j++) { /* cnr */
+                        rtcm->cnr[j]=getbitu_(rtcm->buff,i,6)*1.0; i+=6;
+					}
+				} 
+				else if (is_msm6||is_msm7)
+				{
+					/* decode signal data */
+					for (j=0;j<rtcm->ncel;j++) { /* pseudorange */
+						prv=getbits_(rtcm->buff,i,20); i+=20;
+						if (prv!=-524288) rtcm->pr[j]=prv*P2_29*RANGE_MS;
+					}
+					for (j=0;j<rtcm->ncel;j++) { /* phaserange */
+						cpv=getbits_(rtcm->buff,i,24); i+=24;
+						if (cpv!=-8388608) rtcm->cp[j]=cpv*P2_31*RANGE_MS;
+					}
+					for (j=0;j<rtcm->ncel;j++) { /* lock time */
+						rtcm->lock[j]=getbitu_(rtcm->buff,i,10); i+=10;
+					}
+					for (j=0;j<rtcm->ncel;j++) { /* half-cycle amiguity */
+						rtcm->half[j]=getbitu_(rtcm->buff,i,1); i+=1;
+					}
+					for (j=0;j<rtcm->ncel;j++) { /* cnr */
+						rtcm->cnr[j]=getbitu_(rtcm->buff,i,10)*0.0625; i+=10;
+					}
+				}
+				if (is_msm5||is_msm7)
+				{
+					for (j=0;j<rtcm->ncel;j++) { /* phaserangerate */
+						rrv=getbits_(rtcm->buff,i,15); i+=15;
+						if (rrv!=-16384) rtcm->rrf[j]=rrv*0.0001;
+					}
+				}
+			}
+		}
     }
     if (rtcm->type == 1019)
     {

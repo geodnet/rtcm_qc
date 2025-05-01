@@ -21,6 +21,15 @@ typedef struct {        /* RTCM control struct type */
     unsigned char sats[64];	/* satellites */
     unsigned char sigs[32];	/* signals */
     unsigned char cels[64];	/* cell mask */
+	double r[64];
+	double rr[64];
+	double pr[64];
+	double cp[64];
+	double rrf[64];
+	double cnr[64];
+	int lock[64];
+	int ex[64];
+	int half[64];
     unsigned char buff[MAX_RTCM_BUF_LEN]; /* message buffer */
     unsigned short wk;
     char staname[5];
