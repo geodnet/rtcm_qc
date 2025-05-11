@@ -213,14 +213,16 @@ typedef struct
 
 static double xyz_ref[3] = { 0 };
 
-static void test_rtcm(const char* fname)
+static void test_rtcm(const char* fname, int opt)
 {
     FILE* fRTCM = fopen(fname, "rb");
 
     if (fRTCM==NULL) return;
 
-    FILE* fGGA = set_output_file(fname, "-rtcm.nmea", 0);
-    FILE *fOUT = set_output_file(fname, "-out.rtcm3", 1);
+    FILE* fGGA = (opt & 1 << 0) ? set_output_file(fname, "-rtcm.nmea", 0) : NULL;
+    FILE* fOUT = (opt & 1 << 1) ? set_output_file(fname, "-out.rtcm3", 1) : NULL;
+    FILE* fLOG = (opt & 1 << 2) ? set_output_file(fname, "-msg.csv", 0) : NULL;
+    FILE* fDIF = (opt & 1 << 3) ? set_output_file(fname, "-coord-diff.csv", 0) : NULL;
 
     int data = 0;
     rtcm_buff_t gRTCM_Buf = { 0 };
@@ -228,6 +230,7 @@ static void test_rtcm(const char* fname)
     unsigned long numofsync = 0;
     unsigned long numofmisorder = 0;
     unsigned long numofcrc = 0;
+    unsigned long numofmsg = 0;
     unsigned long numofepoch = 0;
     unsigned long numofepoch_bad = 0;
     double lastTime = 0.0;
@@ -249,8 +252,9 @@ static void test_rtcm(const char* fname)
     {
         if ((data = fgetc(fRTCM)) == EOF) break;
         int ret = input_rtcm3_type(rtcm, (unsigned char)data);
-        if (rtcm->type > 0) /* rtcm data */
+        if (rtcm->len>0 && rtcm->nbyte==0) /* rtcm data */
         {
+            ++numofmsg;
             if (rtcm->crc == 1)
             {
                 ++numofcrc;
@@ -280,22 +284,21 @@ static void test_rtcm(const char* fname)
                     sync_count = 0;
                 }
                 tow = rtcm->tow;
-                dt = tow - lastTime;
-            }
-            if (rtcm_obs_type(rtcm->type))
-            {
                 if (!rtcm->sync && ms_time_cur >= 0 && ms_time_pre >= 0 && mObsType[ms_time_cur] && mObsType[ms_time_pre] && mObsType[ms_time_cur] < mObsType[ms_time_pre])
                 {
                     ++numofsync;
-                    printf("%4i,%4i,%10.3f,%i,%4i*\n", rtcm->staid, rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur]);
+                    if (fLOG) fprintf(fLOG, "%4i,%10.3f,%i,%4i*%c\n", rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur], dt < 0.0 ? '+' : ' ');
                 }
                 else
                 {
-                    printf("%4i,%4i,%10.3f,%i,%4i\n", rtcm->staid, rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur]);
+                    if (fLOG) fprintf(fLOG, "%4i,%10.3f,%i,%4i%c\n", rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur], dt < 0.0 ? '+' : ' ');
                 }
+                dt = tow - lastTime;
             }
-            else 
-                printf("%4i,%4i,%10.3f,%i,%4i\n", rtcm->staid, rtcm->type, tow, rtcm->sync, 0);
+            else
+            {
+                if (fLOG) fprintf(fLOG, "%4i,%10.3f,%i,%4i\n", rtcm->type, tow, rtcm->sync, 0);
+            }
             if (ret == 1)
             {
                 if (numofepoch > 0)
@@ -322,7 +325,7 @@ static void test_rtcm(const char* fname)
                 }
                 lastTime = rtcm->tow;
             }
-            if (ret == 5 && (rtcm->type == 1005 || rtcm->type == 1006))
+            if (ret == 5)
             {
                 xyz_t xyz = { 0 };
                 if ((rtcm->pos[0] * rtcm->pos[0] + rtcm->pos[1] * rtcm->pos[1] + rtcm->pos[2] * rtcm->pos[2]) < 0.1)
@@ -365,7 +368,7 @@ static void test_rtcm(const char* fname)
                     }
                     if (is_added)
                     {
-                        printf("%14.4f%14.4f%14.4f\n", xyz.x, xyz.y, xyz.z);
+                        //printf("%14.4f%14.4f%14.4f\n", xyz.x, xyz.y, xyz.z);
                         vxyz_final.push_back(xyz);
                     }
                 }
@@ -407,15 +410,18 @@ static void test_rtcm(const char* fname)
     int total_epoch = (int)(end_time - start_time + 1);
     if (vObsType.size() > 0)
     {
-        printf("RTCM TYPE Count\n");
+        if (fLOG) fprintf(fLOG, "RTCM TYPE Count\n");
         for (int i = 0; i < vObsType.size(); ++i)
         {
-            printf("%4i,%6u,%6u\r\n", vObsType[i].type, vObsType[i].numofepoch, numofepoch);
+            if (fLOG) fprintf(fLOG, "%4i,%6u,%6u\r\n", vObsType[i].type, vObsType[i].numofepoch, numofepoch);
         }
     }
-    printf("%6u, failed in CRC check\r\n", numofcrc);
-    printf("%6u, sync count difference from previous epoch\r\n", numofsync);
-    printf("%6u, misorder messages\r\n", numofmisorder);
+    if (fLOG) fprintf(fLOG, "%6u, failed in CRC check\r\n", numofcrc);
+    if (fLOG) fprintf(fLOG, "%6u, sync count difference from previous epoch\r\n", numofsync);
+    if (fLOG) fprintf(fLOG, "%6u, misorder messages\r\n", numofmisorder);
+    char* temp = strchr(rtcm->rectype, '\n'); if (temp) temp[0] = '\0';
+    temp = strchr(rtcm->rectype, '\r'); if (temp) temp[0] = '\0';
+    printf("%6u, %6u, %6u, %6u, %6u, %7.2f, %7.2f, %7.2f, %i, %32s, %32s, %s\n", total_epoch, numofmsg, numofcrc, numofsync, numofmisorder, numofmsg > 0 ? (numofcrc * 100.0) / numofmsg : 0, total_epoch > 0 ? (numofsync * 100.0) / total_epoch : 0, total_epoch > 0 ? (numofmisorder * 100.0) / total_epoch : 0, strstr(rtcm->rectype, "-U") ? 1 : 0, rtcm->recver, rtcm->rectype, fname);
     if (vxyz.size() > 0)
     {
         double midXYZ[3] = { 0 };
@@ -442,44 +448,44 @@ static void test_rtcm(const char* fname)
             stdXYZ[0] = sqrt(stdXYZ[0] / (vxyz.size() - 1));
             stdXYZ[1] = sqrt(stdXYZ[1] / (vxyz.size() - 1));
             stdXYZ[2] = sqrt(stdXYZ[2] / (vxyz.size() - 1));
-            printf("%.9f,%.9f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%i,%i\n", midBLH[0] * 180 / PI, midBLH[1] * 180 / PI, midBLH[2], midXYZ[0], midXYZ[1], midXYZ[2], stdXYZ[0], stdXYZ[1], stdXYZ[2], (int)vxyz.size(), (int)vxyz_final.size());
+            if (fLOG) fprintf(fLOG, "%.9f,%.9f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%i\n", midBLH[0] * 180 / PI, midBLH[1] * 180 / PI, midBLH[2], midXYZ[0], midXYZ[1], midXYZ[2], stdXYZ[0], stdXYZ[1], stdXYZ[2], (int)vxyz.size());
         }
         else
         {
-            printf("%.9f,%.9f,%.4f,%.4f,%.4f,%.4f,%i,%i\n", midBLH[0]*180/PI, midBLH[1] * 180 / PI, midBLH[2], midXYZ[0], midXYZ[1], midXYZ[2], (int)vxyz.size(), (int)vxyz_final.size());
+            if (fLOG) fprintf(fLOG, "%.9f,%.9f,%.4f,%.4f,%.4f,%.4f,%i\n", midBLH[0]*180/PI, midBLH[1] * 180 / PI, midBLH[2], midXYZ[0], midXYZ[1], midXYZ[2], (int)vxyz.size());
         }
         if (fabs(xyz_ref[0]) > 0.0 || fabs(xyz_ref[1]) > 0.0 || fabs(xyz_ref[2]) > 0.0)
         {
-            FILE* fDIF = fopen("coord-dif.csv", "w");
             for (int i = 0; i < vxyz.size(); ++i)
             {
                 double dxyz[3] = { vxyz[i].x - xyz_ref[0] , vxyz[i].y - xyz_ref[1] , vxyz[i].z - xyz_ref[2] };
                 double dist = sqrt(dxyz[0] * dxyz[0] + dxyz[1] * dxyz[1] + dxyz[2] * dxyz[2]);
-                fprintf(fDIF, "%.4f,%.4f,%.4f,%.4f,%i\n", dxyz[0], dxyz[1], dxyz[2], dist, dist > 5.0 ? 1 : 0);
+                if (fDIF) fprintf(fDIF, "%.4f,%.4f,%.4f,%.4f,%i\n", dxyz[0], dxyz[1], dxyz[2], dist, dist > 5.0 ? 1 : 0);
             }
-            if (fDIF) fclose(fDIF);
         }
         int ii = 0;
     }
     if (vDataGapOutput.size() > 0)
     {
-        printf("Epoch Data GAP\n");
+        if (fLOG) fprintf(fLOG,"Epoch Data GAP\n");
         for (int i = 0; i < vDataGapOutput.size(); ++i)
         {
-            printf("%s", vDataGapOutput[i].c_str());
+            if (fLOG) fprintf(fLOG, "%s", vDataGapOutput[i].c_str());
         }
     }
     if (vTypeGapOutput.size() > 0)
     {
-        printf("RTCM TYPE GAP\n");
+        if (fLOG) fprintf(fLOG, "RTCM TYPE GAP\n");
         for (int i = 0; i < vTypeGapOutput.size(); ++i)
         {
-            printf("%s", vTypeGapOutput[i].c_str());
+            if (fLOG) fprintf(fLOG, "%s", vTypeGapOutput[i].c_str());
         }
     }
     if (fRTCM) fclose(fRTCM);
     if (fGGA) fclose(fGGA);
     if (fOUT) fclose(fOUT);
+    if (fLOG) fclose(fLOG);
+    if (fDIF) fclose(fDIF);
     return;
 }
 
@@ -487,35 +493,39 @@ int main(int argc, char* argv[])
 {
     if (argc > 1)
     {
-        std::vector<std::string> vFileName;
-        for (int i = 1; i < argc; ++i)
+        int opt = 0;
+        for (int i = 2; i < argc; ++i)
         {
-            char* temp = strchr(argv[i], '=');
-            if (temp) /* command */
+            char* temp = strstr(argv[i], "=");
+            if (temp)
             {
                 temp[0] = '\0';
-                if (strstr(temp, "refxyz"))
+                if (strstr(argv[i], "nmea"))   /* output nmea */
                 {
-                    double xyz[3] = { 0 };
-                    int num = sscanf(temp + 1, "%lf,%lf,%lf", xyz + 0, xyz + 1, xyz + 2);
+                    int is_nmea = atoi(temp + 1);
+                    if (is_nmea) opt |= 1 << 0;
+                }
+                else if (strstr(argv[i], "rtcm"))   /* output rtcm */
+                {
+                    int is_rtcm = atoi(temp + 1);
+                    if (is_rtcm) opt |= 1 << 1;
+                }
+                else if (strstr(argv[i], "msg"))   /* output msg log */
+                {
+                    int is_msg = atoi(temp + 1);
+                    if (is_msg) opt |= 1 << 2;
+                }
+                else if (strstr(argv[i], "xyz")) /* output coordinate difference */
+                {
+                    int num = sscanf(temp + 1, "%lf,%lf,%lf", xyz_ref + 0, xyz_ref + 1, xyz_ref + 2);
                     if (num == 3)
                     {
-                        xyz_ref[0] = xyz[0];
-                        xyz_ref[1] = xyz[1];
-                        xyz_ref[2] = xyz[2];
+                        opt |= 1 << 3;
                     }
                 }
             }
-            else
-            {
-                vFileName.push_back(argv[i]);
-            }
         }
-        for (int i = 0; i < (int)vFileName.size(); ++i)
-        {
-            test_rtcm(vFileName[i].c_str());
-        }
-        test_rtcm(argv[1]);
+        test_rtcm(argv[1], opt);
     }
     return 0;
 }

@@ -182,6 +182,7 @@ static int add_rtcm_to_buff(rtcm_buff_t* rtcm, unsigned char data)
 
     if (rtcm->nbyte>=MAX_RTCM_BUF_LEN) rtcm->nbyte = 0;
     if (rtcm->nbyte==0) {
+        rtcm->len = 0;
         if (data!=RTCM3PREAMB) return 0;
         rtcm->buff[rtcm->nbyte++]=data;
         return 0;
