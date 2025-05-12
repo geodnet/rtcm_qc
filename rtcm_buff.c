@@ -556,7 +556,7 @@ extern int decode_type1033_(uint8_t* buff, int len, int* staid, char* antdes, ch
 }
 
 /* decode type 1230: GLONASS L1 and L2 code-phase biases ---------------------*/
-static int decode_type1230_(uint8_t* buff, int len, int* staid, int* glo_cp_align, double* glo_cp_bias)
+extern int decode_type1230_(uint8_t* buff, int len, int* staid, int* glo_cp_align, double* glo_cp_bias)
 {
     /* GLONASS code-phase alignment (0:no,1:yes) */
     /* GLONASS code-phase biases {1C,1P,2C,2P} (m) */

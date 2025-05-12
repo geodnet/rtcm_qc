@@ -4,7 +4,8 @@
 #include <iostream>
 #include <vector>
 #include <map>
-
+#include <math.h>
+#include <string.h>
 #include "rtcm_buff.h"
 
 typedef struct
@@ -306,7 +307,7 @@ static void test_rtcm(const char* fname, int opt)
                     if (dt > 1.5 && rtcm_obs_type(rtcm->type))
                     {
                         char temp[255] = { 0 };
-                        sprintf(temp, "%10.3f,%10.3f,%6i\r\n", rtcm->tow, dt, numofepoch);
+                        sprintf(temp, "%10.3f,%10.3f,%6lu\r\n", rtcm->tow, dt, numofepoch);
                         vDataGapOutput.push_back(temp);
                     }
                     if (dt < 0.8)
@@ -387,7 +388,7 @@ static void test_rtcm(const char* fname, int opt)
                         if (dt > 1.5 && rtcm_obs_type(rtcm->type))
                         {
                             char temp[255] = { 0 };
-                            sprintf(temp, "%10.3f,%10.3f,%6i,%4i\r\n", tow, dt, vObsType[i].numofepoch, rtcm->type);
+                            sprintf(temp, "%10.3f,%10.3f,%6lu,%4i\r\n", tow, dt, vObsType[i].numofepoch, rtcm->type);
                             vTypeGapOutput.push_back(temp);
                         }
                     }
@@ -413,15 +414,15 @@ static void test_rtcm(const char* fname, int opt)
         if (fLOG) fprintf(fLOG, "RTCM TYPE Count\n");
         for (int i = 0; i < vObsType.size(); ++i)
         {
-            if (fLOG) fprintf(fLOG, "%4i,%6u,%6u\r\n", vObsType[i].type, vObsType[i].numofepoch, numofepoch);
+            if (fLOG) fprintf(fLOG, "%4i,%6lu,%6lu\r\n", vObsType[i].type, vObsType[i].numofepoch, numofepoch);
         }
     }
-    if (fLOG) fprintf(fLOG, "%6u, failed in CRC check\r\n", numofcrc);
-    if (fLOG) fprintf(fLOG, "%6u, sync count difference from previous epoch\r\n", numofsync);
-    if (fLOG) fprintf(fLOG, "%6u, misorder messages\r\n", numofmisorder);
+    if (fLOG) fprintf(fLOG, "%6lu, failed in CRC check\r\n", numofcrc);
+    if (fLOG) fprintf(fLOG, "%6lu, sync count difference from previous epoch\r\n", numofsync);
+    if (fLOG) fprintf(fLOG, "%6lu, misorder messages\r\n", numofmisorder);
     char* temp = strchr(rtcm->rectype, '\n'); if (temp) temp[0] = '\0';
     temp = strchr(rtcm->rectype, '\r'); if (temp) temp[0] = '\0';
-    printf("%6u, %6u, %6u, %6u, %6u, %7.2f, %7.2f, %7.2f, %i, %32s, %32s, %s\n", total_epoch, numofmsg, numofcrc, numofsync, numofmisorder, numofmsg > 0 ? (numofcrc * 100.0) / numofmsg : 0, total_epoch > 0 ? (numofsync * 100.0) / total_epoch : 0, total_epoch > 0 ? (numofmisorder * 100.0) / total_epoch : 0, strstr(rtcm->rectype, "-U") ? 1 : 0, rtcm->recver, rtcm->rectype, fname);
+    printf("%6lu, %6lu, %6lu, %6lu, %6lu, %7.2f, %7.2f, %7.2f, %i, %32s, %32s, %s\n", (unsigned long)total_epoch, numofmsg, numofcrc, numofsync, numofmisorder, numofmsg > 0 ? (numofcrc * 100.0) / numofmsg : 0, total_epoch > 0 ? (numofsync * 100.0) / total_epoch : 0, total_epoch > 0 ? (numofmisorder * 100.0) / total_epoch : 0, strstr(rtcm->rectype, "-U") ? 1 : 0, rtcm->recver, rtcm->rectype, fname);
     if (vxyz.size() > 0)
     {
         double midXYZ[3] = { 0 };
