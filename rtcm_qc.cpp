@@ -249,70 +249,80 @@ static void test_rtcm(const char* fname, int opt)
     int ms_time_cur =-1;
     int ms_time_pre =-1;
     std::map<int, int> mObsType;
+    int nloc[10] = { 0 };
+    int nseg = 0;
+    int nlen = 0;
+    uint8_t key_buff[100] = { 0 };
+    char msg1029[129] = { 0 };
+
     while (!feof(fRTCM))
     {
         if ((data = fgetc(fRTCM)) == EOF) break;
-        int ret = input_rtcm3_type(rtcm, (unsigned char)data);
+        int ret = input_rtcm3_type(rtcm, (unsigned char)data, opt & 1 << 4);
+        /* check GEOD log file header for the */
+        if (nlen >= 100) nlen = 0;
+        if (nlen == 0)
+        {
+            if (data == '$')
+            {
+                memset(key_buff, 0, sizeof(key_buff));
+                memset(nloc, 0, sizeof(nloc));
+                nseg = 0;
+                key_buff[nlen] = data;
+                nlen++;
+            }
+        }
+        else
+        {
+            key_buff[nlen] = data;
+            nlen++;
+            if (data == ',')
+            {
+                nloc[nseg] = nlen;
+                nseg++;
+                if (nseg == 2)
+                {
+                    //printf("%s\n", key_buff);
+                    if (strstr((char*)key_buff, "$GEOD"))
+                    {
+                        rtcm->rcv_gps_sec = atof((char*)(key_buff + nloc[0])) / 1000.0 + 18.0 - 315964800; /* 315964800 => gps start time */
+                    }
+                    nlen = 0;
+                    nseg = 0;
+                }
+            }
+        }
+        /* process regular rtcm data */
+        if (rtcm->crc) continue;
         if (rtcm->len>0 && rtcm->nbyte==0) /* rtcm data */
         {
-            ++numofmsg;
-            if (rtcm->crc == 1)
+            if (rtcm->rcv_gps_sec > 0)
             {
-                ++numofcrc;
-                continue;
-            }
-            if (rtcm_obs_type(rtcm->type))
-            {
-                if (start_time < 0) start_time = rtcm->tow;
-                end_time = rtcm->tow;
-                ms_time_cur = (int)(rtcm->tow * 1000);
-                dt = rtcm->tow - tow;
-                if (dt < -(7 * 24 * 1800)) dt += 7 * 24 * 3600.0;
-                if (dt < 0.0)
-                {
-                    ++numofmisorder;
-                }
-                else if (dt > 0.001)
-                {
-                    ms_time_pre = (int)(tow * 1000);
-                    if (sync_count)
-                        sync_count = 0;
-                }
-                ++sync_count;
-                if (!rtcm->sync)
-                {
-                    mObsType[ms_time_cur] = sync_count;
-                    sync_count = 0;
-                }
-                tow = rtcm->tow;
-                if (!rtcm->sync && ms_time_cur >= 0 && ms_time_pre >= 0 && mObsType[ms_time_cur] && mObsType[ms_time_pre] && mObsType[ms_time_cur] < mObsType[ms_time_pre])
-                {
-                    ++numofsync;
-                    if (fLOG) fprintf(fLOG, "%4i,%10.3f,%i,%4i*%c\n", rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur], dt < 0.0 ? '+' : ' ');
-                }
-                else
-                {
-                    if (fLOG) fprintf(fLOG, "%4i,%10.3f,%i,%4i%c\n", rtcm->type, tow, rtcm->sync, mObsType[ms_time_cur], dt < 0.0 ? '+' : ' ');
-                }
-                dt = tow - lastTime;
+                dt = week_second(rtcm->rcv_gps_sec) - rtcm->tow;
+                if (dt < -7 * 24 * 1800) dt += 7 * 24 * 3600;
+                if (dt > 7 * 24 * 1800) dt -= 7 * 24 * 3600;
+                if (fLOG) fprintf(fLOG, "%10.3f,%4i,%i,%i,%2i,%2i%c,%7.3f%s\n", rtcm->tow, rtcm->type, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount, rtcm->misorder ? '*' : ' ', dt, dt < 0.001 ? "++" : "  ");
             }
             else
             {
-                if (fLOG) fprintf(fLOG, "%4i,%10.3f,%i,%4i\n", rtcm->type, tow, rtcm->sync, 0);
+                if (fLOG) fprintf(fLOG, "%10.3f,%4i,%i,%i,%2i,%2i%c\n", rtcm->tow, rtcm->type, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount, rtcm->misorder ? '*' : ' ');
+            }
+            if (rtcm->type == 1029 && decode_type1029_(rtcm->buff, rtcm->len + 3, &rtcm->staid, msg1029))
+            {
+                if (fLOG) fprintf(fLOG, "%s\n", msg1029);
             }
             if (ret == 1)
             {
                 if (numofepoch > 0)
                 {
-                    if (dt > 1.5 && rtcm_obs_type(rtcm->type))
+                    if (rtcm->dt > 1.5 && rtcm_obs_type(rtcm->type))
                     {
                         char temp[255] = { 0 };
-                        sprintf(temp, "%10.3f,%10.3f,%6lu\r\n", rtcm->tow, dt, numofepoch);
+                        sprintf(temp, "%10.3f,%10.3f,%6lu\r\n", rtcm->tow, rtcm->dt, numofepoch);
                         vDataGapOutput.push_back(temp);
                     }
-                    if (dt < 0.8)
+                    if (rtcm->dt < 0.8)
                     {
-                        dt = dt;
                         ++numofepoch_bad;
                     }
                     else
@@ -360,10 +370,10 @@ static void test_rtcm(const char* fname, int opt)
                             is_added = 1;
                             if (fOUT)
                             {
-                                fclose(fOUT);
+                                //fclose(fOUT);
                                 char buffer[255] = { 0 };
                                 sprintf(buffer, "-out%03i.rtcm3", (int)vxyz_final.size());
-                                fOUT = set_output_file(fname, buffer, 1);
+                                //fOUT = set_output_file(fname, buffer, 1);
                             }
                         }
                     }
@@ -417,12 +427,12 @@ static void test_rtcm(const char* fname, int opt)
             if (fLOG) fprintf(fLOG, "%4i,%6lu,%6lu\r\n", vObsType[i].type, vObsType[i].numofepoch, numofepoch);
         }
     }
-    if (fLOG) fprintf(fLOG, "%6lu, failed in CRC check\r\n", numofcrc);
-    if (fLOG) fprintf(fLOG, "%6lu, sync count difference from previous epoch\r\n", numofsync);
-    if (fLOG) fprintf(fLOG, "%6lu, misorder messages\r\n", numofmisorder);
+    if (fLOG) fprintf(fLOG, "%6llu, failed in CRC check\r\n", rtcm->numofcrc);
+    if (fLOG) fprintf(fLOG, "%6llu, sync count difference from previous epoch\r\n", rtcm->numofmissync);
+    if (fLOG) fprintf(fLOG, "%6llu, misorder messages\r\n", rtcm->numofmistime);
     char* temp = strchr(rtcm->rectype, '\n'); if (temp) temp[0] = '\0';
     temp = strchr(rtcm->rectype, '\r'); if (temp) temp[0] = '\0';
-    printf("%6lu, %6lu, %6lu, %6lu, %6lu, %7.2f, %7.2f, %7.2f, %i, %32s, %32s, %s\n", (unsigned long)total_epoch, numofmsg, numofcrc, numofsync, numofmisorder, numofmsg > 0 ? (numofcrc * 100.0) / numofmsg : 0, total_epoch > 0 ? (numofsync * 100.0) / total_epoch : 0, total_epoch > 0 ? (numofmisorder * 100.0) / total_epoch : 0, strstr(rtcm->rectype, "-U") ? 1 : 0, rtcm->recver, rtcm->rectype, fname);
+    printf("%6llu, %6llu, %6llu, %6llu, %6llu, %7.2f, %7.2f, %7.2f, %i, %32s, %32s, %s\n", rtcm->numofepo, rtcm->numofmsg, rtcm->numofcrc, rtcm->numofmissync, rtcm->numofmistime, rtcm->numofmsg > 0 ? (rtcm->numofcrc * 100.0) / rtcm->numofmsg : 0, rtcm->numofepo > 0 ? (rtcm->numofmissync * 100.0) / rtcm->numofepo : 0, rtcm->numofepo > 0 ? (rtcm->numofmistime * 100.0) / rtcm->numofepo : 0, strstr(rtcm->rectype, "-U") ? 1 : 0, rtcm->recver, rtcm->rectype, fname);
     if (vxyz.size() > 0)
     {
         double midXYZ[3] = { 0 };
@@ -523,6 +533,11 @@ int main(int argc, char* argv[])
                     {
                         opt |= 1 << 3;
                     }
+                }
+                else if (strstr(argv[i], "sync")) /* fix sync */
+                {
+                    int is_sync = atoi(temp + 1);
+                    if (is_sync) opt |= 1 << 4;
                 }
             }
         }

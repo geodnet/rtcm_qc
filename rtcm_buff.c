@@ -177,8 +177,8 @@ static int add_rtcm_to_buff(rtcm_buff_t* rtcm, unsigned char data)
 {
     if (rtcm->sync == 0) rtcm->slen = 0;
     rtcm->type=0;
-    rtcm->crc = 0;
-    rtcm->staid = 0;
+    rtcm->crc=0;
+    rtcm->staid=0;
 
     if (rtcm->nbyte>=MAX_RTCM_BUF_LEN) rtcm->nbyte = 0;
     if (rtcm->nbyte==0) {
@@ -191,10 +191,12 @@ static int add_rtcm_to_buff(rtcm_buff_t* rtcm, unsigned char data)
     return 1;
 }
 
-extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
+extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
 {
     int ret = 0, i = 24, j = 0, mask = 0, is_obs = 0, nbyte = rtcm->nbyte, is_msm4 = 0, is_msm5 = 0, is_msm6 = 0, is_msm7 = 0;
     int rng=0,rng_m=0,prv=0,cpv=0,rate=0,rrv=0;
+    double pre_tow=rtcm->tow;
+    rtcm->numofbyte++;
     if (rtcm->sync == 0) rtcm->slen = 0;
     if (add_rtcm_to_buff(rtcm, data) == 0) return 0;
     
@@ -204,8 +206,10 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
     nbyte = rtcm->nbyte;
     rtcm->nbyte=0;
     /* check parity */
+    rtcm->numofmsg++;
     if (crc24q_(rtcm->buff, rtcm->len) != getbitu_(rtcm->buff, rtcm->len * 8, 24)) {
         rtcm->crc = 1;
+        rtcm->numofcrc++;
         return 0;
     }
     i = 24;
@@ -224,7 +228,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
         ret = rtcm->sync?0:1;
         is_obs = 1;
     }
-    if (rtcm->type == 1084 || rtcm->type == 1085 || rtcm->type == 1086 || rtcm->type == 1087)
+    else if (rtcm->type == 1084 || rtcm->type == 1085 || rtcm->type == 1086 || rtcm->type == 1087)  /* GLO */
     {
         /* GLO */
         rtcm->staid = getbitu_(rtcm->buff, i, 12);           i += 12;
@@ -241,7 +245,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
         ret = rtcm->sync?0:1;
         is_obs = 1;
     }
-    if (rtcm->type == 1124 || rtcm->type == 1125 || rtcm->type == 1126 || rtcm->type == 1127)
+    else if (rtcm->type == 1124 || rtcm->type == 1125 || rtcm->type == 1126 || rtcm->type == 1127)  /* BDS */
     {
         /* BDS */
         rtcm->staid = getbitu_(rtcm->buff, i, 12);           i += 12;
@@ -253,8 +257,122 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
         ret = rtcm->sync?0:1;
         is_obs = 1;
     }
+    else if (rtcm->type == 1019)
+    {
+        int prn   =getbitu_(rtcm->buff,i, 6);              i+= 6;
+        int week  =getbitu_(rtcm->buff,i,10);              i+=10;
+        rtcm->wk  =week+2048;
+        rtcm->sys = 'G';
+        rtcm->prn = prn;
+        rtcm->numofmsg_eph++;
+    }
+    else if (rtcm->type == 1020)
+    {
+        int prn   =getbitu_(rtcm->buff,i, 6);              i+= 6;
+        int frq   =getbitu_(rtcm->buff,i, 5)-7;            i+= 5+2+2;
+        rtcm->sys = 'R';
+        rtcm->prn = prn;
+        rtcm->numofmsg_eph++;
+    }
+    else if (rtcm->type == 1041)
+    {
+        int prn   =getbitu_(rtcm->buff,i, 4);              i+= 6;
+        int week  =getbitu_(rtcm->buff,i,10);              i+=10;
+        rtcm->wk  =week+2048;
+        rtcm->sys = 'I';
+        rtcm->prn = prn;
+        rtcm->numofmsg_eph++;
+    }		
+    else if (rtcm->type == 1042)
+    {
+        int prn   =getbitu_(rtcm->buff,i, 6);              i+= 6;
+        int week  =getbitu_(rtcm->buff,i,13);              i+=13;
+        rtcm->wk  =week+1356; /* BDT week to GPS week */
+        rtcm->sys = 'C';
+        rtcm->prn = prn;
+        rtcm->numofmsg_eph++;
+    }
+   else  if (rtcm->type == 1044)
+    {
+        int prn   =getbitu_(rtcm->buff,i, 4);              i+= 4+430;
+        int week  =getbitu_(rtcm->buff,i,10);              i+=10;
+        rtcm->wk  =week+2048;
+        rtcm->sys = 'J';
+        rtcm->prn = prn;
+        rtcm->numofmsg_eph++;
+    }		
+    else if (rtcm->type == 1045|| rtcm->type == 1046)
+    {
+        int prn   =getbitu_(rtcm->buff,i, 6);              i+= 6;
+        int week  =getbitu_(rtcm->buff,i,12);              i+=12; /* gst-week */
+        rtcm->wk  =week+1024 ; /* gal-week = gst-week + 1024 */
+        rtcm->sys = 'E';
+        rtcm->prn = prn;
+        rtcm->numofmsg_eph++;
+    }
+    else if (rtcm->type == 1005)
+    {
+        ret = decode_type1005_(rtcm->buff, rtcm->len, &rtcm->staid, rtcm->pos);
+    }
+    else if (rtcm->type == 1006)
+    {
+        ret = decode_type1006_(rtcm->buff, rtcm->len, &rtcm->staid, rtcm->pos);
+    }
+    else if (rtcm->type == 1033)
+    {
+        ret = decode_type1033_(rtcm->buff, rtcm->len, &rtcm->staid, rtcm->antdes, rtcm->antsno, rtcm->rectype, rtcm->recver, rtcm->recsno);
+    }
+    else if (rtcm->type == 1230)
+    {
+        ret = decode_type1230_(rtcm->buff, rtcm->len, &rtcm->staid, &rtcm->glo_cp_align, rtcm->glo_cp_bias);
+    }
     if (is_obs)
     {
+        rtcm->numofmsg_obs++;
+        rtcm->cur_obscount++;
+        if (ret==1)
+        {
+            rtcm->numofsync++;
+            if (rtcm->cur_obscount<rtcm->pre_obscount)
+            {
+                rtcm->numofmissync++;
+                rtcm->misorder=1;
+                if (fix_sync)
+                {
+                    ret=0;
+                    update_msm_sync_(rtcm->buff, rtcm->len + 3, 1); /* more message */
+                    rtcm->misorder=2;/* fixed */
+                }
+            }
+        }
+        if (rtcm->numofmsg_obs>1)
+        {
+            rtcm->dt = rtcm->tow - pre_tow;
+            if (fabs(rtcm->dt)>0.001)
+            {
+                if (rtcm->dt < -7 * 24 * 1800) rtcm->dt += 7 * 24 * 3600;
+                else if (rtcm->dt > 7 * 24 * 1800) rtcm->dt -= 7 * 24 * 3600;
+                if (rtcm->dt < 0.0001)
+                    rtcm->numofmistime++;
+                rtcm->pre_obscount=rtcm->cur_obscount-1;
+                rtcm->cur_obscount=1;
+                rtcm->numofepo++;
+            }
+            else if (rtcm->pre_obscount <= rtcm->cur_obscount && rtcm->misorder)
+            {
+                if (rtcm->misorder == 2)
+                {
+                    ret = 1;
+                    update_msm_sync_(rtcm->buff, rtcm->len + 3, 0); /* no more message */
+                }
+                rtcm->misorder = 0;
+            }
+        }
+        else
+        {
+            rtcm->numofepo++;
+        }
+#if 0        
 		is_msm4 = (rtcm->type==1074||rtcm->type==1084||rtcm->type==1094||rtcm->type==1104||rtcm->type==1114||rtcm->type==1124||rtcm->type==1134);
 		is_msm5 = (rtcm->type==1075||rtcm->type==1085||rtcm->type==1095||rtcm->type==1105||rtcm->type==1115||rtcm->type==1125||rtcm->type==1135);
 		is_msm6 = (rtcm->type==1076||rtcm->type==1086||rtcm->type==1096||rtcm->type==1106||rtcm->type==1116||rtcm->type==1126||rtcm->type==1136);
@@ -385,88 +503,28 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data)
 				}
 			}
 		}
-    }
-    if (rtcm->type == 1019)
-    {
-        int prn   =getbitu_(rtcm->buff,i, 6);              i+= 6;
-        int week  =getbitu_(rtcm->buff,i,10);              i+=10;
-        rtcm->wk  =week+2048;
-        rtcm->sys = 'G';
-        rtcm->prn = prn;
-    }
-    if (rtcm->type == 1020)
-    {
-        int prn   =getbitu_(rtcm->buff,i, 6);              i+= 6;
-        int frq   =getbitu_(rtcm->buff,i, 5)-7;            i+= 5+2+2;
-        rtcm->sys = 'R';
-        rtcm->prn = prn;
-    }
-    if (rtcm->type == 1041)
-    {
-        int prn   =getbitu_(rtcm->buff,i, 4);              i+= 6;
-        int week  =getbitu_(rtcm->buff,i,10);              i+=10;
-        rtcm->wk  =week+2048;
-        rtcm->sys = 'I';
-        rtcm->prn = prn;
-    }		
-    if (rtcm->type == 1042)
-    {
-        int prn   =getbitu_(rtcm->buff,i, 6);              i+= 6;
-        int week  =getbitu_(rtcm->buff,i,13);              i+=13;
-        rtcm->wk  =week+1356; /* BDT week to GPS week */
-    }
-    if (rtcm->type == 1044)
-    {
-        int prn   =getbitu_(rtcm->buff,i, 4);              i+= 4+430;
-        int week  =getbitu_(rtcm->buff,i,10);              i+=10;
-        rtcm->wk  =week+2048;
-        rtcm->sys = 'J';
-        rtcm->prn = prn;
-    }		
-    if (rtcm->type == 1045|| rtcm->type == 1046)
-    {
-        int prn   =getbitu_(rtcm->buff,i, 6);              i+= 6;
-        int week  =getbitu_(rtcm->buff,i,12);              i+=12; /* gst-week */
-        rtcm->wk  =week+1024 ; /* gal-week = gst-week + 1024 */
-        rtcm->sys = 'E';
-        rtcm->prn = prn;
-    }
-    if (rtcm->type == 1005)
-    {
-        ret = decode_type1005_(rtcm->buff, rtcm->len, &rtcm->staid, rtcm->pos);
-    }
-    if (rtcm->type == 1006)
-    {
-        ret = decode_type1006_(rtcm->buff, rtcm->len, &rtcm->staid, rtcm->pos);
-    }
-    if (rtcm->type == 1033)
-    {
-        ret = decode_type1033_(rtcm->buff, rtcm->len, &rtcm->staid, rtcm->antdes, rtcm->antsno, rtcm->rectype, rtcm->recver, rtcm->recsno);
-    }
-    if (rtcm->type == 1230)
-    {
-        ret = decode_type1230_(rtcm->buff, rtcm->len, &rtcm->staid, &rtcm->glo_cp_align, rtcm->glo_cp_bias);
-    }
+#endif            
+    }    
     rtcm->slen += rtcm->len + 3;
     return ret;
 }
 
 extern int rtcm_obs_type(int type)
 {
-    if ((type == 1074 || type == 1075 || type == 1076 || type == 1077) || /* GPS */
-        (type == 1084 || type == 1085 || type == 1086 || type == 1087) || /* GLO */
-        (type == 1094 || type == 1095 || type == 1096 || type == 1097) || /* GAL */
-        (type == 1104 || type == 1105 || type == 1106 || type == 1107) || /* SBS */
-        (type == 1114 || type == 1115 || type == 1116 || type == 1117) || /* QZS */
-        (type == 1124 || type == 1125 || type == 1126 || type == 1127) || /* BDS */
-        (type == 1134 || type == 1135 || type == 1136 || type == 1137))   /* IRN */
+    if ((type == 1071 || type == 1072 || type == 1073 || type == 1074 || type == 1075 || type == 1076 || type == 1077) || /* GPS */
+        (type == 1081 || type == 1082 || type == 1083 || type == 1084 || type == 1085 || type == 1086 || type == 1087) || /* GLO */
+        (type == 1091 || type == 1092 || type == 1093 || type == 1094 || type == 1095 || type == 1096 || type == 1097) || /* GAL */
+        (type == 1101 || type == 1102 || type == 1103 || type == 1104 || type == 1105 || type == 1106 || type == 1107) || /* SBS */
+        (type == 1111 || type == 1112 || type == 1113 || type == 1114 || type == 1115 || type == 1116 || type == 1117) || /* QZS */
+        (type == 1121 || type == 1122 || type == 1123 || type == 1124 || type == 1125 || type == 1126 || type == 1127) || /* BDS */
+        (type == 1131 || type == 1132 || type == 1133 || type == 1134 || type == 1135 || type == 1136 || type == 1137))   /* IRN */
         return 1;
     else
         return 0;
 }
 extern int rtcm_eph_type(int type)
 {
-    return type == 1019 || type == 1020 || type == 1042 || type == 1044 || type == 1045 || type == 1046;
+    return type == 1019 || type == 1020 || type == 1041 || type == 1042 || type == 1044 || type == 1045 || type == 1046;
 }
 
 extern int update_type_1005_1006_pos(uint8_t* buff, int nbyte, double* p)
@@ -500,6 +558,30 @@ extern int update_type_1005_1006_pos(uint8_t* buff, int nbyte, double* p)
         {
         setbitu_  (buff, i, 16,         0); i += 16; /* antenna height */
         }
+        /* crc-24q */
+        crc = crc24q_(buff, len);
+        setbitu_(buff, len * 8, 24, crc);
+        ret = 1;
+    }
+    return ret;
+}
+extern int update_msm_sync_(uint8_t* buff, int nbyte, int sync)
+{
+    int len = 0, i = 24, type = 0;
+    int crc = 0;
+    int ret = 0;
+    if (buff[0] != RTCM3PREAMB || nbyte < 6) return ret;
+    len = getbitu_(buff, 14, 10) + 3; /* length without parity */
+    if (nbyte < (len + 3)) return ret;
+
+    i = 24; /* type */
+    type = getbitu_(buff, i, 12); i += 12;
+
+    if (rtcm_obs_type(type))
+    {
+        i += 12;    /* staid */
+        i += 30;    /* tow */
+        setbitu_(buff, i, 1, sync); i += 1; /* sync */
         /* crc-24q */
         crc = crc24q_(buff, len);
         setbitu_(buff, len * 8, 24, crc);
@@ -582,4 +664,39 @@ extern int decode_type1230_(uint8_t* buff, int len, int* staid, int* glo_cp_alig
         }
     }
     return 5;
+}
+/* decode type 1029: UNICODE text string -------------------------------------*/
+extern int decode_type1029_(uint8_t* buff, int len, int* staid, char* msg)
+{
+    int i=24+12,j,mjd,tod,nchar,cunit;
+    
+    if (i+60<=len*8) {
+        *staid=getbitu_(buff,i,12); i+=12;
+        mjd   =getbitu_(buff,i,16); i+=16;
+        tod   =getbitu_(buff,i,17); i+=17;
+        nchar =getbitu_(buff,i, 7); i+= 7;
+        cunit =getbitu_(buff,i, 8); i+= 8;
+    }
+    else {
+        //trace(2,"rtcm3 1029 length error: len=%d\n",len);
+        return -1;
+    }
+    if (i+nchar*8>len*8) {
+        //trace(2,"rtcm3 1029 length error: len=%d nchar=%d\n",len,nchar);
+        return -1;
+    } 
+    for (j=0;j<nchar&&j<126;j++) {
+        msg[j]=getbitu_(buff,i,8); i+=8;
+    }
+    msg[j]='\0';
+    
+    return nchar;
+}
+   int week_number(double sec)
+{
+    return (int)(sec/(24*7*3600));
+}
+double week_second(double sec)
+{
+    return sec-week_number(sec)*(24*7*3600);
 }
