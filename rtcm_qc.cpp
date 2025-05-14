@@ -254,6 +254,10 @@ static void test_rtcm(const char* fname, int opt)
     int nlen = 0;
     uint8_t key_buff[100] = { 0 };
     char msg1029[129] = { 0 };
+    double v1 = 0;
+    double v2 = 0;
+    double v3 = 0;
+    double v4 = 0;
 
     while (!feof(fRTCM))
     {
@@ -310,6 +314,18 @@ static void test_rtcm(const char* fname, int opt)
             if (rtcm->type == 1029 && decode_type1029_(rtcm->buff, rtcm->len + 3, &rtcm->staid, msg1029))
             {
                 if (fLOG) fprintf(fLOG, "%s\n", msg1029);
+            }
+            if (rtcm->type == 4054)
+            {
+                int vers = getbitu_(rtcm->buff, 24 + 12, 3);
+                int stype = getbitu_(rtcm->buff, 24 + 12 + 3, 9);
+                if (stype == 300)
+                {
+                    v1 = getbitu_(rtcm->buff, 85, 25);
+                    v2 = getbitu_(rtcm->buff, 124, 7);
+                    v3 = getbitu_(rtcm->buff, 131, 2);
+                    v4 = getbitu_(rtcm->buff, 135, 3);
+                }
             }
             if (ret == 1)
             {
@@ -432,7 +448,7 @@ static void test_rtcm(const char* fname, int opt)
     if (fLOG) fprintf(fLOG, "%6llu, misorder messages\r\n", rtcm->numofmistime);
     char* temp = strchr(rtcm->rectype, '\n'); if (temp) temp[0] = '\0';
     temp = strchr(rtcm->rectype, '\r'); if (temp) temp[0] = '\0';
-    printf("%6llu, %6llu, %6llu, %6llu, %6llu, %7.2f, %7.2f, %7.2f, %i, %32s, %32s, %s\n", rtcm->numofepo, rtcm->numofmsg, rtcm->numofcrc, rtcm->numofmissync, rtcm->numofmistime, rtcm->numofmsg > 0 ? (rtcm->numofcrc * 100.0) / rtcm->numofmsg : 0, rtcm->numofepo > 0 ? (rtcm->numofmissync * 100.0) / rtcm->numofepo : 0, rtcm->numofepo > 0 ? (rtcm->numofmistime * 100.0) / rtcm->numofepo : 0, strstr(rtcm->rectype, "-U") ? 1 : 0, rtcm->recver, rtcm->rectype, fname);
+    printf("%6llu, %6llu, %6llu, %6llu, %6llu, %4.0f,%7.2f, %7.2f, %7.2f, %i, %32s, %32s, %s\n", rtcm->numofepo, rtcm->numofmsg, rtcm->numofcrc, rtcm->numofmissync, rtcm->numofmistime, -v2, rtcm->numofmsg > 0 ? (rtcm->numofcrc * 100.0) / rtcm->numofmsg : 0, rtcm->numofepo > 0 ? (rtcm->numofmissync * 100.0) / rtcm->numofepo : 0, rtcm->numofepo > 0 ? (rtcm->numofmistime * 100.0) / rtcm->numofepo : 0, strstr(rtcm->rectype, "-U") ? 1 : 0, rtcm->recver, rtcm->rectype, fname);
     if (vxyz.size() > 0)
     {
         double midXYZ[3] = { 0 };
