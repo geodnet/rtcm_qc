@@ -330,48 +330,119 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
     {
         rtcm->numofmsg_obs++;
         rtcm->cur_obscount++;
-        if (ret==1)
-        {
-            rtcm->numofsync++;
-            if (rtcm->cur_obscount<rtcm->pre_obscount)
-            {
-                rtcm->numofmissync++;
-                rtcm->misorder=1;
-                if (fix_sync)
-                {
-                    ret=0;
-                    update_msm_sync_(rtcm->buff, rtcm->len + 3, 1); /* more message */
-                    rtcm->misorder=2;/* fixed */
-                }
-            }
-        }
-        if (rtcm->numofmsg_obs>1)
+        printf("%10.3f,%4i,%i,%i,%2i,%2i", rtcm->tow, rtcm->type, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount);
+        if (rtcm->numofmsg_obs>1) /* more message */
         {
             rtcm->dt = rtcm->tow - pre_tow;
-            if (fabs(rtcm->dt)>0.001)
+            if (fabs(rtcm->dt) < 0.001) /* same epoch */
+            {
+                if (ret == 1)   /* sync flag = 0 => epoch completed ? */
+                {
+                    rtcm->numofsync++; /* sync message count (flag=0) */
+                    if (rtcm->pre_obscount == 0) /* first epoch */
+                    {
+                        rtcm->pre_obscount = rtcm->cur_obscount;
+                        rtcm->cur_obscount = 0;
+                        rtcm->misorder = 0;
+                    }
+                    else /* more epochs */
+                    {
+                        if (rtcm->cur_obscount >= rtcm->pre_obscount) /* normal data, no sync issue */
+                        {
+                            rtcm->pre_obscount = rtcm->cur_obscount;
+                            rtcm->cur_obscount = 0;
+                            rtcm->misorder = 0;
+                        }
+                        else /* sync issue, need to fix the sync flag */
+                        {
+                            rtcm->numofmissync++;
+                            rtcm->misorder = 1;
+                            if (fix_sync)
+                            {
+                                update_msm_sync_(rtcm->buff, rtcm->len + 3, 1); /* more message */
+                                rtcm->misorder = 2;/* fixed */
+                                rtcm->sync = getbitu_(rtcm->buff, 24 + 12 + 12 + 30, 1);
+                                ret = !rtcm->sync;
+                                printf(",%i,%i,%i,fix sync", rtcm->sync, ret, rtcm->misorder);
+                            }
+                        }
+                    }
+                }
+                /* same epoch sync flag = 1 */
+                else if (rtcm->pre_obscount > 0 && rtcm->cur_obscount >= rtcm->pre_obscount) /* check the epoch complete by obs msg counter */
+                {
+                    if (rtcm->misorder == 2)
+                    {
+                        update_msm_sync_(rtcm->buff, rtcm->len + 3, 0); /* no more message */
+                        rtcm->sync = getbitu_(rtcm->buff, 24 + 12 + 12 + 30, 1);
+                        ret = !rtcm->sync;
+                        printf(",%i,%i,%i,fix sync", rtcm->sync, ret, rtcm->misorder);
+                    }
+                    rtcm->pre_obscount = rtcm->cur_obscount;
+                    rtcm->cur_obscount = 0;
+                    rtcm->misorder = 0;
+                }
+            }
+#if 0
+            else /* new */
+            {
+                if (rtcm->pre_obscount > 0 && rtcm->pre_obscount <= rtcm->cur_obscount)
+                {
+                    if (rtcm->misorder == 2)
+                    {
+                        update_msm_sync_(rtcm->buff, rtcm->len + 3, 0); /* no more message */
+                        rtcm->sync = getbitu_(rtcm->buff, 24 + 12 + 12 + 30, 1);
+                        ret = !rtcm->sync;
+                        printf(",%i,%i,%i,fix sync", rtcm->sync, ret, rtcm->misorder);
+                    }
+                    rtcm->pre_obscount = rtcm->cur_obscount;
+                    rtcm->cur_obscount = 0;
+                    rtcm->misorder = 0;
+                }
+                else
+                {
+                    ret = ret;
+                }
+            }
+#endif
+            else /* new epoch */
             {
                 if (rtcm->dt < -7 * 24 * 1800) rtcm->dt += 7 * 24 * 3600;
                 else if (rtcm->dt > 7 * 24 * 1800) rtcm->dt -= 7 * 24 * 3600;
                 if (rtcm->dt < 0.0001)
-                    rtcm->numofmistime++;
-                rtcm->pre_obscount=rtcm->cur_obscount-1;
-                rtcm->cur_obscount=1;
-                rtcm->numofepo++;
-            }
-            else if (rtcm->pre_obscount <= rtcm->cur_obscount && rtcm->misorder)
-            {
-                if (rtcm->misorder == 2)
                 {
-                    ret = 1;
-                    update_msm_sync_(rtcm->buff, rtcm->len + 3, 0); /* no more message */
+                    rtcm->numofmistime++;
+                    rtcm->misorder = 4; /* do not output */
                 }
-                rtcm->misorder = 0;
+                else
+                {
+                    if (rtcm->cur_obscount > 1)   /* missed the last sync message (in the previous epoch) */
+                    {
+                        rtcm->misorder = 3;
+                        rtcm->cur_obscount = 1;
+                        printf(",%i,%i,%i,missed the last sync message", rtcm->sync, ret, rtcm->misorder);
+                    }
+                    else if (rtcm->cur_obscount == 1)
+                    {
+                    }
+                    else
+                    {
+                        rtcm->cur_obscount = rtcm->cur_obscount;
+                    }
+                    rtcm->numofepo++;
+                }
             }
         }
-        else
+        else /* first message */
         {
+            if (ret == 1) /* first message with sync flag = 0 (ret=1) */
+            {
+                rtcm->numofsync++;
+                rtcm->cur_obscount = 0;
+            }
             rtcm->numofepo++;
         }
+        printf("\n");
 #if 0        
 		is_msm4 = (rtcm->type==1074||rtcm->type==1084||rtcm->type==1094||rtcm->type==1104||rtcm->type==1114||rtcm->type==1124||rtcm->type==1134);
 		is_msm5 = (rtcm->type==1075||rtcm->type==1085||rtcm->type==1095||rtcm->type==1105||rtcm->type==1115||rtcm->type==1125||rtcm->type==1135);
