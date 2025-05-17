@@ -60,8 +60,13 @@ typedef struct {        /* RTCM control struct type */
     double etime;   /* start time */
     int pre_obscount;   /* obs message count in one epoch */
     int cur_obscount;
-    double rcv_gps_sec; /* received time in gps sec */
+    double tow_pre;
     double dt;
+    char msg[126];
+    double v1;
+    double v2;
+    double v3;
+    double v4;
 } rtcm_buff_t;
 
 int input_rtcm3_type(rtcm_buff_t* rtcm, unsigned char data, int fix_sync);
@@ -72,6 +77,7 @@ int update_type_1005_1006_pos(uint8_t* buff, int nbyte, double* p);
 int decode_type1033_(uint8_t* buff, int len, int* staid, char* antdes, char* antsno, char* rectype, char* recver, char* recsno);
 int decode_type1230_(uint8_t* buff, int len, int* staid, int* glo_cp_align, double* glo_cp_bias);
 int update_msm_sync_(uint8_t* buff, int len, int sync);
+int encode_msm4_sync(uint8_t* buff, double tow, int type, int staid, int sync);
 int decode_type1029_(uint8_t* buff, int len, int* staid, char* msg);
 
 unsigned int crc24q_(const unsigned char *buff, int len);

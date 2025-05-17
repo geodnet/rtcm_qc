@@ -44,6 +44,8 @@
 #define P2_50       8.881784197001252E-16 /* 2^-50 */
 #define P2_55       2.775557561562891E-17 /* 2^-55 */
 
+#define ROUND_U(x)  ((uint32_t)floor((x)+0.5))
+
 static const unsigned int tbl_CRC24Q[]={
     0x000000,0x864CFB,0x8AD50D,0x0C99F6,0x93E6E1,0x15AA1A,0x1933EC,0x9F7F17,
     0xA18139,0x27CDC2,0x2B5434,0xAD18CF,0x3267D8,0xB42B23,0xB8B2D5,0x3EFE2E,
@@ -195,7 +197,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
 {
     int ret = 0, i = 24, j = 0, mask = 0, is_obs = 0, nbyte = rtcm->nbyte, is_msm4 = 0, is_msm5 = 0, is_msm6 = 0, is_msm7 = 0;
     int rng=0,rng_m=0,prv=0,cpv=0,rate=0,rrv=0;
-    double pre_tow=rtcm->tow;
+    rtcm->tow_pre=rtcm->tow;
     rtcm->numofbyte++;
     if (rtcm->sync == 0) rtcm->slen = 0;
     if (add_rtcm_to_buff(rtcm, data) == 0) return 0;
@@ -326,14 +328,30 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
     {
         ret = decode_type1230_(rtcm->buff, rtcm->len, &rtcm->staid, &rtcm->glo_cp_align, rtcm->glo_cp_bias);
     }
+    else if (rtcm->type == 4054)
+    {
+        int vers = getbitu_(rtcm->buff, 24 + 12, 3);
+        int stype = getbitu_(rtcm->buff, 24 + 12 + 3, 9);
+        if (stype == 300)
+        {
+            rtcm->v1 = getbitu_(rtcm->buff, 85, 25);
+            rtcm->v2 = getbitu_(rtcm->buff, 124, 7);
+            rtcm->v3 = getbitu_(rtcm->buff, 131, 2);
+            rtcm->v4 = getbitu_(rtcm->buff, 135, 3);
+        }
+    }
     if (is_obs)
     {
         rtcm->numofmsg_obs++;
         rtcm->cur_obscount++;
-        printf("%10.3f,%4i,%i,%i,%2i,%2i", rtcm->tow, rtcm->type, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount);
-        if (rtcm->numofmsg_obs>1) /* more message */
+        char *pstr = rtcm->msg;
+        int nstr = 0;
+        nstr += sprintf(pstr + nstr, "%10.3f,%4i,%4i,%i,%i,%2i,%2i", rtcm->tow, rtcm->len+3, rtcm->type, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount);
+        if (rtcm->misorder == 3 || rtcm->misorder == 4) rtcm->misorder = 0;
+        if (rtcm->numofmsg_obs > 1) /* more message */
         {
-            rtcm->dt = rtcm->tow - pre_tow;
+            rtcm->etime = rtcm->tow;
+            rtcm->dt = rtcm->tow - rtcm->tow_pre;
             if (fabs(rtcm->dt) < 0.001) /* same epoch */
             {
                 if (ret == 1)   /* sync flag = 0 => epoch completed ? */
@@ -363,7 +381,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
                                 rtcm->misorder = 2;/* fixed */
                                 rtcm->sync = getbitu_(rtcm->buff, 24 + 12 + 12 + 30, 1);
                                 ret = !rtcm->sync;
-                                printf(",%i,%i,%i,fix sync", rtcm->sync, ret, rtcm->misorder);
+                                nstr += sprintf(pstr + nstr, ",%i,%i,%i,fix sync", rtcm->sync, ret, rtcm->misorder);
                             }
                         }
                     }
@@ -376,51 +394,35 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
                         update_msm_sync_(rtcm->buff, rtcm->len + 3, 0); /* no more message */
                         rtcm->sync = getbitu_(rtcm->buff, 24 + 12 + 12 + 30, 1);
                         ret = !rtcm->sync;
-                        printf(",%i,%i,%i,fix sync", rtcm->sync, ret, rtcm->misorder);
+                        nstr += sprintf(pstr + nstr, ",%i,%i,%i,fix sync", rtcm->sync, ret, rtcm->misorder);
                     }
                     rtcm->pre_obscount = rtcm->cur_obscount;
                     rtcm->cur_obscount = 0;
                     rtcm->misorder = 0;
                 }
             }
-#if 0
-            else /* new */
-            {
-                if (rtcm->pre_obscount > 0 && rtcm->pre_obscount <= rtcm->cur_obscount)
-                {
-                    if (rtcm->misorder == 2)
-                    {
-                        update_msm_sync_(rtcm->buff, rtcm->len + 3, 0); /* no more message */
-                        rtcm->sync = getbitu_(rtcm->buff, 24 + 12 + 12 + 30, 1);
-                        ret = !rtcm->sync;
-                        printf(",%i,%i,%i,fix sync", rtcm->sync, ret, rtcm->misorder);
-                    }
-                    rtcm->pre_obscount = rtcm->cur_obscount;
-                    rtcm->cur_obscount = 0;
-                    rtcm->misorder = 0;
-                }
-                else
-                {
-                    ret = ret;
-                }
-            }
-#endif
             else /* new epoch */
             {
                 if (rtcm->dt < -7 * 24 * 1800) rtcm->dt += 7 * 24 * 3600;
                 else if (rtcm->dt > 7 * 24 * 1800) rtcm->dt -= 7 * 24 * 3600;
                 if (rtcm->dt < 0.0001)
                 {
-                    rtcm->numofmistime++;
                     rtcm->misorder = 4; /* do not output */
+                    nstr += sprintf(pstr + nstr, ",%i,%i,%i,last message arrived later", rtcm->sync, ret, rtcm->misorder);
+                    if (rtcm->cur_obscount > 0) --rtcm->cur_obscount;
+                    rtcm->numofmistime++;
+                    /* switch tow with pre_tow */
+                    double cur_tow = rtcm->tow;
+                    rtcm->tow = rtcm->tow_pre;
+                    rtcm->tow_pre = cur_tow;
                 }
                 else
                 {
                     if (rtcm->cur_obscount > 1)   /* missed the last sync message (in the previous epoch) */
                     {
                         rtcm->misorder = 3;
+                        nstr += sprintf(pstr + nstr, ",%i,%i,%i,missed the last sync message", rtcm->sync, ret, rtcm->misorder);
                         rtcm->cur_obscount = 1;
-                        printf(",%i,%i,%i,missed the last sync message", rtcm->sync, ret, rtcm->misorder);
                     }
                     else if (rtcm->cur_obscount == 1)
                     {
@@ -435,6 +437,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
         }
         else /* first message */
         {
+            rtcm->stime = rtcm->tow;
             if (ret == 1) /* first message with sync flag = 0 (ret=1) */
             {
                 rtcm->numofsync++;
@@ -442,7 +445,8 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
             }
             rtcm->numofepo++;
         }
-        printf("\n");
+        nstr += sprintf(pstr + nstr, "\n");
+        //printf("%s", rtcm->msg);
 #if 0        
 		is_msm4 = (rtcm->type==1074||rtcm->type==1084||rtcm->type==1094||rtcm->type==1104||rtcm->type==1114||rtcm->type==1124||rtcm->type==1134);
 		is_msm5 = (rtcm->type==1075||rtcm->type==1085||rtcm->type==1095||rtcm->type==1105||rtcm->type==1115||rtcm->type==1125||rtcm->type==1135);
@@ -659,6 +663,82 @@ extern int update_msm_sync_(uint8_t* buff, int nbyte, int sync)
         ret = 1;
     }
     return ret;
+}
+extern int encode_msm4_sync(uint8_t* buff, double tow, int type, int staid, int sync)
+{
+    uint8_t sat_ind[64]={0},sig_ind[32]={0},cell_ind[32*64]={0};
+    uint32_t dow=0,epoch=0,crc=0;
+    int i=0,j,nsat=0,nsig=0,seqno=0,len=0;
+    
+	if (type==1074||type==1084||type==1094||type==1104||type==1114||type==1124||type==1134)
+	{
+	}
+	else
+	{
+		return 0;
+	}
+    
+    if (type==1084) {
+        /* GLONASS time (dow + tod-ms) */
+        dow=(uint32_t)(tow/86400.0);
+        epoch=(dow<<27)+ROUND_U(fmod(tow,86400.0)*1E3);
+    }
+    else if (type==1124) {
+        /* BDS time (tow-ms) */
+		tow-=14.0;
+        epoch=ROUND_U(tow*1E3);
+    }
+    else {
+        /* GPS, QZSS, Galileo and IRNSS time (tow-ms) */
+        epoch=ROUND_U(tow*1E3);
+    }
+
+    /* set preamble and reserved */
+    setbitu_(buff,i, 8,RTCM3PREAMB); i+= 8;
+    setbitu_(buff,i, 6,0          ); i+= 6;
+    setbitu_(buff,i,10,0          ); i+=10;
+
+    /* encode msm header (ref [15] table 3.5-78) */
+    setbitu_(buff,i,12,type       ); i+=12; /* message number */
+    setbitu_(buff,i,12,staid      ); i+=12; /* reference station id */
+    setbitu_(buff,i,30,epoch      ); i+=30; /* epoch time */
+    setbitu_(buff,i, 1,sync       ); i+= 1; /* multiple message bit */
+    setbitu_(buff,i, 3,seqno      ); i+= 3; /* issue of data station */
+    setbitu_(buff,i, 7,0          ); i+= 7; /* reserved */
+    setbitu_(buff,i, 2,0          ); i+= 2; /* clock streering indicator */
+    setbitu_(buff,i, 2,0          ); i+= 2; /* external clock indicator */
+    setbitu_(buff,i, 1,0          ); i+= 1; /* smoothing indicator */
+    setbitu_(buff,i, 3,0          ); i+= 3; /* smoothing interval */
+    
+    /* satellite mask */
+    for (j=0;j<64;j++) {
+        setbitu_(buff,i,1,sat_ind[j]?1:0); i+=1;
+    }
+    /* signal mask */
+    for (j=0;j<32;j++) {
+        setbitu_(buff,i,1,sig_ind[j]?1:0); i+=1;
+    }
+    /* cell mask */
+    for (j=0;j<nsat*nsig&&j<64;j++) {
+        setbitu_(buff,i,1,cell_ind[j]?1:0); i+=1;
+    }
+
+    /* padding to align 8 bit boundary */
+    for (;i%8;i++) {
+        setbitu_(buff,i,1,0);
+    }
+    /* message length (header+data) (bytes) */
+    if ((len=i/8)>=3+1024) {
+        return 0;
+    }
+    /* message length without header and parity */
+    setbitu_(buff,14,10,len-3);
+    
+    /* crc-24q */
+    crc=crc24q_(buff,len);
+    setbitu_(buff,i,24,crc);
+    
+    return len+3; /* length total (bytes) */
 }
 /* decode type 1033: receiver and antenna descriptor -------------------------*/
 extern int decode_type1033_(uint8_t* buff, int len, int* staid, char* antdes, char* antsno, char* rectype, char* recver, char* recsno)

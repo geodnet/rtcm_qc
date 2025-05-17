@@ -20,6 +20,7 @@ typedef struct
     double x;
     double y;
     double z;
+    unsigned int index;
 }xyz_t;
 
 #ifndef ae_WGS84
@@ -214,14 +215,175 @@ typedef struct
 
 static double xyz_ref[3] = { 0 };
 
+static int add_rtcm_data(rtcm_buff_t* rtcm, unsigned char data, FILE* fOUT, FILE* fLOG, FILE* fGGA, std::vector< rtcm_obs_t>& vObsType, std::vector<xyz_t>& vxyz, int opt)
+{
+    int ret = input_rtcm3_type(rtcm, (unsigned char)data, opt & 1 << 4);
+    /* process regular rtcm data */
+    if (rtcm->crc) return ret;
+    if (rtcm->len > 0 && rtcm->nbyte == 0) /* rtcm data */
+    {
+        //if (fLOG) fprintf(fLOG, "%10.3f,%4i,%i,%i,%2i,%2i%c\n", rtcm->tow, rtcm->type, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount, rtcm->misorder ? '*' : ' ');
+        if (strlen(rtcm->msg)) if (fLOG) fprintf(fLOG, "%s", rtcm->msg);
+        if (rtcm->type == 1029)
+        {
+            if (fLOG) fprintf(fLOG, "%s\n", rtcm->msg);
+        }
+        if (rtcm->type == 1005 || rtcm->type == 1006)
+        {
+            xyz_t xyz = { 0 };
+            if ((rtcm->pos[0] * rtcm->pos[0] + rtcm->pos[1] * rtcm->pos[1] + rtcm->pos[2] * rtcm->pos[2]) < 0.1)
+            {
+            }
+            else
+            {
+                xyz.x = rtcm->pos[0];
+                xyz.y = rtcm->pos[1];
+                xyz.z = rtcm->pos[2];
+                if (fGGA)
+                {
+                    char gga[255] = { 0 };
+                    double blh[3] = { 0 };
+                    xyz2blh_(rtcm->pos, blh);
+                    int blen = sprintf(gga, "%04i,%14.4f,%14.4f,%14.4f,", rtcm->staid, rtcm->pos[0], rtcm->pos[1], rtcm->pos[2]);
+                    outnmea_gga((unsigned char*)gga + blen, rtcm->tow, 1, blh[0] * R2D, blh[1] * R2D, blh[2], 10, 1.0, 0.0);
+                    fprintf(fGGA, "%s", gga);
+                }
+                int is_added = 0;
+                if (vxyz.size() == 0)
+                {
+                    xyz.index++;
+                }
+                else
+                {
+                    xyz.index = vxyz.rbegin()->index;
+                    double dxyz[3] = { xyz.x - vxyz.rbegin()->x, xyz.y - vxyz.rbegin()->y, xyz.z - vxyz.rbegin()->z };
+                    if (fabs(dxyz[0]) > 0.001 || fabs(dxyz[1]) > 0.001 || fabs(dxyz[2]) > 0.001)
+                    {
+                        xyz.index++;
+                    }
+                    else
+                    {
+                    }
+                }
+                vxyz.push_back(xyz);
+            }
+        }
+        /* output */
+        if (fOUT)
+        {
+            if (rtcm->misorder == 4) /* skip output */
+            {
+
+            }
+            else if (rtcm->misorder == 3)
+            {
+                uint8_t new_buff[300] = { 0 };
+                int nlen = encode_msm4_sync(new_buff, rtcm->tow_pre, 1074, rtcm->staid, 0);
+                if (nlen)
+                {
+                    fwrite(new_buff, nlen, sizeof(char), fOUT);
+                }
+                fwrite(rtcm->buff, rtcm->len + 3, sizeof(char), fOUT);
+            }
+            else
+            {
+                fwrite(rtcm->buff, rtcm->len + 3, sizeof(char), fOUT);
+            }
+        }
+        int i = 0;
+        for (; i < vObsType.size(); ++i)
+        {
+            if (vObsType[i].type == rtcm->type)
+            {
+                vObsType[i].numofepoch++;
+                vObsType[i].time = rtcm->tow;
+                break;
+            }
+        }
+        if (i == vObsType.size())
+        {
+            rtcm_obs_t temp = { 0 };
+            temp.type = rtcm->type;
+            temp.time = rtcm->tow;
+            temp.numofepoch = 1;
+            vObsType.push_back(temp);
+        }
+    }
+    return ret;
+}
+static int get_geod_data(const char* fname)
+{
+    int numofgeod = 0;
+    int data = 0;
+    FILE* fLOG = fopen(fname, "rb");
+    char buff[100] = { 0 };
+    int nloc[4] = { 0 };
+    int nseg = 0;
+    int nlen = 0;
+    while (fLOG && !feof(fLOG) && (data = fgetc(fLOG)) != EOF)
+    {
+        //printf("%c", (unsigned char)data);
+        if ((nlen == 0 && data == '$') || (nlen == 1 && data == 'G') || (nlen == 2 && data == 'E') || (nlen == 3 && data == 'O') || (nlen == 4 && data == 'D') || (nlen == 5 && data == ',') || nlen > 5)
+        {
+        }
+        else
+        {
+            nlen = 0;
+            continue;
+        }
+        if (nlen == 0)
+        {
+            nseg = 0;
+            memset(nloc, 0, sizeof(nloc));
+            memset(buff, 0, sizeof(buff));
+        }
+        if (nlen >= 100)
+        {
+            nlen = 0;
+            continue;
+        }
+        buff[nlen++] = data;
+        if (data == ',')
+        {
+            nloc[nseg++] = nlen;
+            if (nseg == 3)
+            {
+                buff[nloc[2]] = '\0';
+                nlen = atoi(buff + nloc[1]);
+                //printf("%s\n", buff);
+                if (nlen > 0)
+                {
+                    unsigned char* data_buff = new unsigned char[nlen + 2];
+                    size_t nread = fread(data_buff, sizeof(char), nlen + 2, fLOG);
+                    if (nread == (nlen + 2))
+                    {
+                        nlen = 0;
+                    }
+                    else
+                    {
+                        nlen = 0;
+                    }
+                    delete[] data_buff;
+                }
+                nlen = 0;
+                ++numofgeod;
+            }
+        }
+    }
+    if (fLOG) fclose(fLOG);
+    return numofgeod;
+}
+
+
 static void test_rtcm(const char* fname, int opt)
 {
+    int numofgeod = get_geod_data(fname);
     FILE* fRTCM = fopen(fname, "rb");
 
     if (fRTCM==NULL) return;
 
     FILE* fGGA = (opt & 1 << 0) ? set_output_file(fname, "-rtcm.nmea", 0) : NULL;
-    FILE* fOUT = (opt & 1 << 1) ? set_output_file(fname, "-out.rtcm3", 1) : NULL;
+    FILE* fOUT = (opt & 1 << 1) ? set_output_file(fname, "-out.rtcm", 1) : NULL;
     FILE* fLOG = (opt & 1 << 2) ? set_output_file(fname, "-msg.csv", 0) : NULL;
     FILE* fDIF = (opt & 1 << 3) ? set_output_file(fname, "-coord-diff.csv", 0) : NULL;
 
@@ -249,206 +411,88 @@ static void test_rtcm(const char* fname, int opt)
     int ms_time_cur =-1;
     int ms_time_pre =-1;
     std::map<int, int> mObsType;
-    int nloc[10] = { 0 };
+    int nloc[4] = { 0 };
     int nseg = 0;
     int nlen = 0;
-    uint8_t key_buff[100] = { 0 };
-    char msg1029[129] = { 0 };
-    double v1 = 0;
-    double v2 = 0;
-    double v3 = 0;
-    double v4 = 0;
+    char buff[100] = { 0 };
 
-    while (!feof(fRTCM))
+    while (fRTCM && !feof(fRTCM))
     {
         if ((data = fgetc(fRTCM)) == EOF) break;
-        int ret = input_rtcm3_type(rtcm, (unsigned char)data, opt & 1 << 4);
-        /* check GEOD log file header for the */
-        if (nlen >= 100) nlen = 0;
-        if (nlen == 0)
+        if (numofgeod)
         {
-            if (data == '$')
+            if ((nlen == 0 && data == '$') || (nlen == 1 && data == 'G') || (nlen == 2 && data == 'E') || (nlen == 3 && data == 'O') || (nlen == 4 && data == 'D') || (nlen == 5 && data == ',') || nlen > 5)
             {
-                memset(key_buff, 0, sizeof(key_buff));
-                memset(nloc, 0, sizeof(nloc));
+            }
+            else
+            {
+                nlen = 0;
+                continue;
+            }
+            if (nlen == 0)
+            {
                 nseg = 0;
-                key_buff[nlen] = data;
-                nlen++;
+                memset(nloc, 0, sizeof(nloc));
+                memset(buff, 0, sizeof(buff));
+            }
+            if (nlen >= 100)
+            {
+                nlen = 0;
+                continue;
+            }
+            buff[nlen++] = data;
+            if (data == ',')
+            {
+                nloc[nseg++] = nlen;
+                if (nseg == 3)
+                {
+                    buff[nloc[2]] = '\0';
+                    nlen = atoi(buff + nloc[1]);
+                    //printf("%s\n", buff);
+                    if (nlen > 0)
+                    {
+                        unsigned char* data_buff = new unsigned char[nlen + 2];
+                        size_t nread = fread(data_buff, sizeof(char), nlen + 2, fRTCM);
+                        if (nread == (nlen + 2))
+                        {
+                            for (int i = 0; i < nlen; ++i)
+                            {
+                                add_rtcm_data(rtcm, data_buff[i], fOUT, fLOG, fGGA, vObsType, vxyz, opt);
+                            }
+                            nlen = 0;
+                        }
+                        else
+                        {
+                            nlen = 0;
+                        }
+                        delete[] data_buff;
+                    }
+                    nlen = 0;
+                }
             }
         }
         else
         {
-            key_buff[nlen] = data;
-            nlen++;
-            if (data == ',')
-            {
-                nloc[nseg] = nlen;
-                nseg++;
-                if (nseg == 2)
-                {
-                    //printf("%s\n", key_buff);
-                    if (strstr((char*)key_buff, "$GEOD"))
-                    {
-                        rtcm->rcv_gps_sec = atof((char*)(key_buff + nloc[0])) / 1000.0 + 18.0 - 315964800; /* 315964800 => gps start time */
-                    }
-                    nlen = 0;
-                    nseg = 0;
-                }
-            }
-        }
-        /* process regular rtcm data */
-        if (rtcm->crc) continue;
-        if (rtcm->len>0 && rtcm->nbyte==0) /* rtcm data */
-        {
-            if (rtcm->rcv_gps_sec > 0)
-            {
-                dt = week_second(rtcm->rcv_gps_sec) - rtcm->tow;
-                if (dt < -7 * 24 * 1800) dt += 7 * 24 * 3600;
-                if (dt > 7 * 24 * 1800) dt -= 7 * 24 * 3600;
-                if (fLOG) fprintf(fLOG, "%10.3f,%4i,%i,%i,%2i,%2i%c,%7.3f%s\n", rtcm->tow, rtcm->type, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount, rtcm->misorder ? '*' : ' ', dt, dt < 0.001 ? "++" : "  ");
-            }
-            else
-            {
-                if (fLOG) fprintf(fLOG, "%10.3f,%4i,%i,%i,%2i,%2i%c\n", rtcm->tow, rtcm->type, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount, rtcm->misorder ? '*' : ' ');
-            }
-            if (rtcm->type == 1029 && decode_type1029_(rtcm->buff, rtcm->len + 3, &rtcm->staid, msg1029))
-            {
-                if (fLOG) fprintf(fLOG, "%s\n", msg1029);
-            }
-            if (rtcm->type == 4054)
-            {
-                int vers = getbitu_(rtcm->buff, 24 + 12, 3);
-                int stype = getbitu_(rtcm->buff, 24 + 12 + 3, 9);
-                if (stype == 300)
-                {
-                    v1 = getbitu_(rtcm->buff, 85, 25);
-                    v2 = getbitu_(rtcm->buff, 124, 7);
-                    v3 = getbitu_(rtcm->buff, 131, 2);
-                    v4 = getbitu_(rtcm->buff, 135, 3);
-                }
-            }
-            if (ret == 1)
-            {
-                if (numofepoch > 0)
-                {
-                    if (rtcm->dt > 1.5 && rtcm_obs_type(rtcm->type))
-                    {
-                        char temp[255] = { 0 };
-                        sprintf(temp, "%10.3f,%10.3f,%6lu\r\n", rtcm->tow, rtcm->dt, numofepoch);
-                        vDataGapOutput.push_back(temp);
-                    }
-                    if (rtcm->dt < 0.8)
-                    {
-                        ++numofepoch_bad;
-                    }
-                    else
-                    {
-                        ++numofepoch;
-                    }
-                }
-                else
-                {
-                    ++numofepoch;
-                }
-                lastTime = rtcm->tow;
-            }
-            if (ret == 5)
-            {
-                xyz_t xyz = { 0 };
-                if ((rtcm->pos[0] * rtcm->pos[0] + rtcm->pos[1] * rtcm->pos[1] + rtcm->pos[2] * rtcm->pos[2]) < 0.1)
-                {
-                }
-                else
-                {
-                    xyz.x = rtcm->pos[0];
-                    xyz.y = rtcm->pos[1];
-                    xyz.z = rtcm->pos[2];
-                    vxyz.push_back(xyz);
-                    if (fGGA)
-                    {
-                        char gga[255] = { 0 };
-                        double blh[3] = { 0 };
-                        xyz2blh_(rtcm->pos, blh);
-                        int blen = sprintf(gga, "%04i,%14.4f,%14.4f,%14.4f,", rtcm->staid, rtcm->pos[0], rtcm->pos[1], rtcm->pos[2]);
-                        outnmea_gga((unsigned char*)gga+blen, rtcm->tow, 1, blh[0] * R2D, blh[1] * R2D, blh[2], 10, 1.0, 0.0);
-                        fprintf(fGGA, "%s", gga);
-                    }
-                    int is_added = 0;
-                    if (vxyz_final.size() == 0)
-                    {
-                        is_added = 1;
-                    }
-                    else
-                    {
-                        double dxyz[3] = { xyz.x - vxyz_final.rbegin()->x, xyz.y - vxyz_final.rbegin()->y, xyz.z - vxyz_final.rbegin()->z };
-                        if (fabs(dxyz[0]) > 0.001 || fabs(dxyz[1]) > 0.001 || fabs(dxyz[2]) > 0.001)
-                        {
-                            is_added = 1;
-                            if (fOUT)
-                            {
-                                //fclose(fOUT);
-                                char buffer[255] = { 0 };
-                                sprintf(buffer, "-out%03i.rtcm3", (int)vxyz_final.size());
-                                //fOUT = set_output_file(fname, buffer, 1);
-                            }
-                        }
-                    }
-                    if (is_added)
-                    {
-                        //printf("%14.4f%14.4f%14.4f\n", xyz.x, xyz.y, xyz.z);
-                        vxyz_final.push_back(xyz);
-                    }
-                }
-            }
-            /* output */
-            if (fOUT) fwrite(rtcm->buff, rtcm->len + 3, sizeof(char), fOUT);
-
-            int i = 0;
-            for (; i < vObsType.size(); ++i)
-            {
-                if (vObsType[i].type == rtcm->type)
-                {
-                    if (vObsType[i].numofepoch > 0)
-                    {
-                        dt = tow - vObsType[i].time;
-                        if (dt > 1.5 && rtcm_obs_type(rtcm->type))
-                        {
-                            char temp[255] = { 0 };
-                            sprintf(temp, "%10.3f,%10.3f,%6lu,%4i\r\n", tow, dt, vObsType[i].numofepoch, rtcm->type);
-                            vTypeGapOutput.push_back(temp);
-                        }
-                    }
-                    vObsType[i].numofepoch++;
-                    vObsType[i].time = tow;
-                    break;
-                }
-            }
-            if (i == vObsType.size())
-            {
-                rtcm_obs_t temp = { 0 };
-                temp.type = rtcm->type;
-                temp.time = tow;
-                temp.numofepoch = 1;
-                vObsType.push_back(temp);
-            }
+            add_rtcm_data(rtcm, data, fOUT, fLOG, fGGA, vObsType, vxyz, opt);
         }
     }
-    if (end_time < start_time) end_time += 7 * 24 * 3600;
-    int total_epoch = (int)(end_time - start_time + 1);
+    if (rtcm->etime < rtcm->stime) rtcm->etime += 7 * 24 * 3600;
+    int total_epoch = (int)(rtcm->etime - rtcm->stime + 1);
     if (vObsType.size() > 0)
     {
         if (fLOG) fprintf(fLOG, "RTCM TYPE Count\n");
         for (int i = 0; i < vObsType.size(); ++i)
         {
-            if (fLOG) fprintf(fLOG, "%4i,%6lu,%6lu\r\n", vObsType[i].type, vObsType[i].numofepoch, numofepoch);
+            if (fLOG) fprintf(fLOG, "%4i,%6lu,%6llu\r\n", vObsType[i].type, vObsType[i].numofepoch, rtcm->numofepo);
         }
     }
-    if (fLOG) fprintf(fLOG, "%6llu, failed in CRC check\r\n", rtcm->numofcrc);
-    if (fLOG) fprintf(fLOG, "%6llu, sync count difference from previous epoch\r\n", rtcm->numofmissync);
-    if (fLOG) fprintf(fLOG, "%6llu, misorder messages\r\n", rtcm->numofmistime);
+    if (fLOG) fprintf(fLOG, "%6llu/%6llu, failed in CRC check\r\n", rtcm->numofcrc, rtcm->numofmsg);
+    if (fLOG) fprintf(fLOG, "%6llu/%6llu, sync count difference from previous epoch\r\n", rtcm->numofmissync, rtcm->numofsync);
+    if (fLOG) fprintf(fLOG, "%6llu/%6llu, misorder messages\r\n", rtcm->numofmistime, rtcm->numofepo);
     char* temp = strchr(rtcm->rectype, '\n'); if (temp) temp[0] = '\0';
     temp = strchr(rtcm->rectype, '\r'); if (temp) temp[0] = '\0';
-    printf("%6llu, %6llu, %6llu, %6llu, %6llu, %4.0f,%7.2f, %7.2f, %7.2f, %i, %32s, %32s, %s\n", rtcm->numofepo, rtcm->numofmsg, rtcm->numofcrc, rtcm->numofmissync, rtcm->numofmistime, -v2, rtcm->numofmsg > 0 ? (rtcm->numofcrc * 100.0) / rtcm->numofmsg : 0, rtcm->numofepo > 0 ? (rtcm->numofmissync * 100.0) / rtcm->numofepo : 0, rtcm->numofepo > 0 ? (rtcm->numofmistime * 100.0) / rtcm->numofepo : 0, strstr(rtcm->rectype, "-U") ? 1 : 0, rtcm->recver, rtcm->rectype, fname);
+    printf("%6llu, %6llu, %6llu, %6llu, %6llu, %6llu, %4.0f,%7.2f, %7.2f, %7.2f, %i, %32s, %32s, %s\n", rtcm->numofmsg, rtcm->numofsync, rtcm->numofepo, rtcm->numofcrc, rtcm->numofmissync, rtcm->numofmistime, -rtcm->v2, rtcm->numofmsg > 0 ? (rtcm->numofcrc * 100.0) / rtcm->numofmsg : 0, rtcm->numofsync > 0 ? (rtcm->numofmissync * 100.0) / rtcm->numofsync : 0, rtcm->numofepo > 0 ? (rtcm->numofmistime * 100.0) / rtcm->numofepo : 0, strstr(rtcm->rectype, "-U") ? 1 : 0, rtcm->recver, rtcm->rectype, fname);
+    if (fLOG) fprintf(fLOG,"%6llu, %6llu, %6llu, %6llu, %6llu, %6llu, %4.0f,%7.2f, %7.2f, %7.2f, %i, %32s, %32s, %s\n", rtcm->numofmsg, rtcm->numofsync, rtcm->numofepo, rtcm->numofcrc, rtcm->numofmissync, rtcm->numofmistime, -rtcm->v2, rtcm->numofmsg > 0 ? (rtcm->numofcrc * 100.0) / rtcm->numofmsg : 0, rtcm->numofsync > 0 ? (rtcm->numofmissync * 100.0) / rtcm->numofsync : 0, rtcm->numofepo > 0 ? (rtcm->numofmistime * 100.0) / rtcm->numofepo : 0, strstr(rtcm->rectype, "-U") ? 1 : 0, rtcm->recver, rtcm->rectype, fname);
     if (vxyz.size() > 0)
     {
         double midXYZ[3] = { 0 };
