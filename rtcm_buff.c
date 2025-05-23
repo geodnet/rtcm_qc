@@ -579,7 +579,13 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
 			}
 		}
 #endif            
-    }    
+    }  
+    else
+    {
+        char* pstr = rtcm->msg;
+        int nstr = 0;
+        nstr += sprintf(pstr + nstr, "%10.3f,%4i,%4i,%i,%i", rtcm->tow, rtcm->len + 3, rtcm->type, rtcm->sync, ret);
+    }
     rtcm->slen += rtcm->len + 3;
     return ret;
 }
