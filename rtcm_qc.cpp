@@ -489,12 +489,12 @@ static void test_rtcm(const char* fname, int opt)
         if (fLOG) fprintf(fLOG, "RTCM TYPE Count\n");
         for (int i = 0; i < vObsType.size(); ++i)
         {
-            if (vObsType[i].type == 1074) numof1074 = vObsType[i].numofepoch;
-            if (vObsType[i].type == 1084) numof1084 = vObsType[i].numofepoch;
-            if (vObsType[i].type == 1094) numof1094 = vObsType[i].numofepoch;
-            if (vObsType[i].type == 1114) numof1114 = vObsType[i].numofepoch;
-            if (vObsType[i].type == 1124) numof1124 = vObsType[i].numofepoch;
-            if (vObsType[i].type == 1134) numof1134 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1074 || vObsType[i].type == 1075 || vObsType[i].type == 1076 || vObsType[i].type == 1077) numof1074 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1084 || vObsType[i].type == 1085 || vObsType[i].type == 1086 || vObsType[i].type == 1087) numof1084 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1094 || vObsType[i].type == 1095 || vObsType[i].type == 1096 || vObsType[i].type == 1097) numof1094 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1114 || vObsType[i].type == 1115 || vObsType[i].type == 1116 || vObsType[i].type == 1107) numof1114 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1124 || vObsType[i].type == 1125 || vObsType[i].type == 1126 || vObsType[i].type == 1127) numof1124 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1134 || vObsType[i].type == 1135 || vObsType[i].type == 1136 || vObsType[i].type == 1137) numof1134 = vObsType[i].numofepoch;
             if (fLOG) fprintf(fLOG, "%4i,%6lu,%6llu\r\n", vObsType[i].type, vObsType[i].numofepoch, rtcm->numofepo);
         }
     }
