@@ -223,10 +223,15 @@ static int add_rtcm_data(rtcm_buff_t* rtcm, unsigned char data, FILE* fOUT, FILE
     if (rtcm->len > 0 && rtcm->nbyte == 0) /* rtcm data */
     {
         //if (fLOG) fprintf(fLOG, "%10.3f,%4i,%i,%i,%2i,%2i%c\n", rtcm->tow, rtcm->type, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount, rtcm->misorder ? '*' : ' ');
-        if (strlen(rtcm->msg)) if (fLOG) fprintf(fLOG, "%s", rtcm->msg);
-        if (rtcm->type == 1029)
+        if (strlen(rtcm->msg))
         {
-            if (fLOG) fprintf(fLOG, "%s\n", rtcm->msg);
+            if (fLOG)
+            {
+                if (rtcm->msg[strlen(rtcm->msg) - 1] == '\n')
+                    fprintf(fLOG, "%s", rtcm->msg);
+                else
+                    fprintf(fLOG, "%s\n", rtcm->msg);
+            }
         }
         if (rtcm->type == 1005 || rtcm->type == 1006)
         {
@@ -484,6 +489,13 @@ static void test_rtcm(const char* fname, int opt)
     int numof1114 = 0;
     int numof1124 = 0;
     int numof1134 = 0;
+    int numof1019 = 0;
+    int numof1020 = 0;
+    int numof1041 = 0;
+    int numof1042 = 0;
+    int numof1044 = 0;
+    int numof1045 = 0;
+    int numof1046 = 0;
     if (vObsType.size() > 0)
     {
         if (fLOG) fprintf(fLOG, "RTCM TYPE Count\n");
@@ -495,6 +507,13 @@ static void test_rtcm(const char* fname, int opt)
             if (vObsType[i].type == 1114 || vObsType[i].type == 1115 || vObsType[i].type == 1116 || vObsType[i].type == 1107) numof1114 = vObsType[i].numofepoch;
             if (vObsType[i].type == 1124 || vObsType[i].type == 1125 || vObsType[i].type == 1126 || vObsType[i].type == 1127) numof1124 = vObsType[i].numofepoch;
             if (vObsType[i].type == 1134 || vObsType[i].type == 1135 || vObsType[i].type == 1136 || vObsType[i].type == 1137) numof1134 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1019) numof1019 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1020) numof1020 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1041) numof1041 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1042) numof1042 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1044) numof1044 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1045) numof1045 = vObsType[i].numofepoch;
+            if (vObsType[i].type == 1046) numof1046 = vObsType[i].numofepoch;
             if (fLOG) fprintf(fLOG, "%4i,%6lu,%6llu\r\n", vObsType[i].type, vObsType[i].numofepoch, rtcm->numofepo);
         }
     }
@@ -503,10 +522,12 @@ static void test_rtcm(const char* fname, int opt)
     if (fLOG) fprintf(fLOG, "%6llu/%6llu, misorder messages\r\n", rtcm->numofmistime, rtcm->numofepo);
     char* temp = strchr(rtcm->rectype, '\n'); if (temp) temp[0] = '\0';
     temp = strchr(rtcm->rectype, '\r'); if (temp) temp[0] = '\0';
-    printf("%6llu, %6llu, %6llu, %6llu, %6llu, %6llu, %4.0f,%7.2f, %7.2f, %7.2f, %i, %6lu, %6lu, %6lu, %6lu, %6lu, %6lu, %32s, %32s, %s\n", rtcm->numofmsg, rtcm->numofsync, rtcm->numofepo, rtcm->numofcrc, rtcm->numofmissync, rtcm->numofmistime, -rtcm->v2, rtcm->numofmsg > 0 ? (rtcm->numofcrc * 100.0) / rtcm->numofmsg : 0, rtcm->numofsync > 0 ? (rtcm->numofmissync * 100.0) / rtcm->numofsync : 0, rtcm->numofepo > 0 ? (rtcm->numofmistime * 100.0) / rtcm->numofepo : 0, strstr(rtcm->rectype, "-U") ? 1 : 0
-        , numof1074, numof1084, numof1094, numof1114, numof1124, numof1134, rtcm->recver, rtcm->rectype, fname);
-    if (fLOG) fprintf(fLOG,"%6llu, %6llu, %6llu, %6llu, %6llu, %6llu, %4.0f,%7.2f, %7.2f, %7.2f, %i, %6lu, %6lu, %6lu, %6lu, %6lu, %6lu, %32s, %32s, %s\n", rtcm->numofmsg, rtcm->numofsync, rtcm->numofepo, rtcm->numofcrc, rtcm->numofmissync, rtcm->numofmistime, -rtcm->v2, rtcm->numofmsg > 0 ? (rtcm->numofcrc * 100.0) / rtcm->numofmsg : 0, rtcm->numofsync > 0 ? (rtcm->numofmissync * 100.0) / rtcm->numofsync : 0, rtcm->numofepo > 0 ? (rtcm->numofmistime * 100.0) / rtcm->numofepo : 0, strstr(rtcm->rectype, "-U") ? 1 : 0
-        , numof1074, numof1084, numof1094, numof1114, numof1124, numof1134, rtcm->recver, rtcm->rectype, fname);
+    printf("%6llu, %6llu, %6llu, %6llu, %6llu, %6llu, %4.0f,%7.2f, %7.2f, %7.2f, %i, %6lu, %6lu, %6lu, %6lu, %6lu, %6lu, %32s, %32s, %50s, %6lu, %6lu, %6lu, %6lu, %6lu, %6lu, %6lu\n", rtcm->numofmsg, rtcm->numofsync, rtcm->numofepo, rtcm->numofcrc, rtcm->numofmissync, rtcm->numofmistime, -rtcm->v2, rtcm->numofmsg > 0 ? (rtcm->numofcrc * 100.0) / rtcm->numofmsg : 0, rtcm->numofsync > 0 ? (rtcm->numofmissync * 100.0) / rtcm->numofsync : 0, rtcm->numofepo > 0 ? (rtcm->numofmistime * 100.0) / rtcm->numofepo : 0, strstr(rtcm->rectype, "-U") ? 1 : 0
+        , numof1074, numof1084, numof1094, numof1114, numof1124, numof1134, rtcm->recver, rtcm->rectype, fname
+        , numof1019, numof1020, numof1041, numof1042, numof1044, numof1045, numof1046);
+    if (fLOG) fprintf(fLOG,"%6llu, %6llu, %6llu, %6llu, %6llu, %6llu, %4.0f,%7.2f, %7.2f, %7.2f, %i, %6lu, %6lu, %6lu, %6lu, %6lu, %6lu, %32s, %32s, %50s, %6lu, %6lu, %6lu, %6lu, %6lu, %6lu, %6lu\n", rtcm->numofmsg, rtcm->numofsync, rtcm->numofepo, rtcm->numofcrc, rtcm->numofmissync, rtcm->numofmistime, -rtcm->v2, rtcm->numofmsg > 0 ? (rtcm->numofcrc * 100.0) / rtcm->numofmsg : 0, rtcm->numofsync > 0 ? (rtcm->numofmissync * 100.0) / rtcm->numofsync : 0, rtcm->numofepo > 0 ? (rtcm->numofmistime * 100.0) / rtcm->numofepo : 0, strstr(rtcm->rectype, "-U") ? 1 : 0
+        , numof1074, numof1084, numof1094, numof1114, numof1124, numof1134, rtcm->recver, rtcm->rectype, fname
+        , numof1019, numof1020, numof1041, numof1042, numof1044, numof1045, numof1046);
     if (vxyz.size() > 0)
     {
         double midXYZ[3] = { 0 };

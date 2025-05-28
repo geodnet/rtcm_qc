@@ -58,6 +58,7 @@ typedef struct {        /* RTCM control struct type */
     unsigned long long numofmsg_eph;/* total number of eph message */
     double stime;   /* start time */
     double etime;   /* start time */
+    int obscount[5];
     int pre_obscount;   /* obs message count in one epoch */
     int cur_obscount;
     double tow_pre;

@@ -193,6 +193,20 @@ static int add_rtcm_to_buff(rtcm_buff_t* rtcm, unsigned char data)
     return 1;
 }
 
+static int add_obs_count(int* obscount, int count, int bufsize)
+{
+    int i=0;
+    int maxcount = 0;
+    for (i=0;i<bufsize-1;++i)
+    {
+        if (obscount[i] > 0 && obscount[i] > maxcount) maxcount = obscount[i];
+        obscount[i]=obscount[i+1];
+    }
+    if (count > 0 && count > maxcount) maxcount = count;
+    obscount[bufsize-1]=count;
+    return maxcount;
+}
+
 extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
 {
     int ret = 0, i = 24, j = 0, mask = 0, is_obs = 0, nbyte = rtcm->nbyte, is_msm4 = 0, is_msm5 = 0, is_msm6 = 0, is_msm7 = 0;
@@ -350,6 +364,8 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
         if (rtcm->misorder == 3 || rtcm->misorder == 4) rtcm->misorder = 0;
         if (rtcm->numofmsg_obs > 1) /* more message */
         {
+            if ((int)rtcm->tow == 13137)
+                int i = 0;
             rtcm->etime = rtcm->tow;
             rtcm->dt = rtcm->tow - rtcm->tow_pre;
             if (fabs(rtcm->dt) < 0.001) /* same epoch */
@@ -359,7 +375,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
                     rtcm->numofsync++; /* sync message count (flag=0) */
                     if (rtcm->pre_obscount == 0) /* first epoch */
                     {
-                        rtcm->pre_obscount = rtcm->cur_obscount;
+                        rtcm->pre_obscount = add_obs_count(rtcm->obscount, rtcm->cur_obscount, 5);
                         rtcm->cur_obscount = 0;
                         rtcm->misorder = 0;
                     }
@@ -367,7 +383,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
                     {
                         if (rtcm->cur_obscount >= rtcm->pre_obscount) /* normal data, no sync issue */
                         {
-                            rtcm->pre_obscount = rtcm->cur_obscount;
+                            rtcm->pre_obscount = add_obs_count(rtcm->obscount, rtcm->cur_obscount, 5);
                             rtcm->cur_obscount = 0;
                             rtcm->misorder = 0;
                         }
@@ -396,7 +412,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
                         ret = !rtcm->sync;
                         nstr += sprintf(pstr + nstr, ",%i,%i,%i,fix sync", rtcm->sync, ret, rtcm->misorder);
                     }
-                    rtcm->pre_obscount = rtcm->cur_obscount;
+                    rtcm->pre_obscount = add_obs_count(rtcm->obscount, rtcm->cur_obscount, 5);
                     rtcm->cur_obscount = 0;
                     rtcm->misorder = 0;
                 }
@@ -420,6 +436,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
                 {
                     if (rtcm->cur_obscount > 1)   /* missed the last sync message (in the previous epoch) */
                     {
+                        rtcm->pre_obscount = add_obs_count(rtcm->obscount, rtcm->cur_obscount - 1, 5);
                         rtcm->misorder = 3;
                         nstr += sprintf(pstr + nstr, ",%i,%i,%i,missed the last sync message", rtcm->sync, ret, rtcm->misorder);
                         rtcm->cur_obscount = 1;
