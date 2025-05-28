@@ -241,6 +241,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
         rtcm->staid = getbitu_(rtcm->buff, i, 12);           i += 12;
         rtcm->tow   = getbitu_(rtcm->buff, i, 30) * 0.001;   i += 30;
         rtcm->sync  = getbitu_(rtcm->buff, i,  1);           i +=  1;
+        rtcm->seqno = getbitu_(rtcm->buff, i,  3);           i +=  3;   /* issue of data station */
         ret = rtcm->sync?0:1;
         is_obs = 1;
     }
@@ -251,6 +252,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
         double dow  = getbitu_(rtcm->buff, i,  3);           i +=  3;
         double tod  = getbitu_(rtcm->buff, i, 27) * 0.001;   i += 27;
         rtcm->sync  = getbitu_(rtcm->buff, i,  1);           i +=  1;
+        rtcm->seqno = getbitu_(rtcm->buff, i,  3);           i +=  3;   /* issue of data station */
         double tow  = dow * 24 * 3600 + tod - 3 * 3600 + 18;
         if (rtcm->tow>0.0&&fabs(tow- rtcm->tow)>(24*1800))
         {
@@ -266,7 +268,8 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
         /* BDS */
         rtcm->staid = getbitu_(rtcm->buff, i, 12);           i += 12;
         double tow  = getbitu_(rtcm->buff, i, 30) * 0.001;   i += 30;
-        rtcm->sync  = getbitu_(rtcm->buff,i, 1);             i +=  1;
+        rtcm->sync  = getbitu_(rtcm->buff, i,  1);           i +=  1;
+        rtcm->seqno = getbitu_(rtcm->buff, i,  3);           i +=  3;   /* issue of data station */
         tow += 14.0; /* BDT -> GPST */
         tow -= floor(tow / 604800) * 604800;
         rtcm->tow = tow;
@@ -360,12 +363,10 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
         rtcm->cur_obscount++;
         char *pstr = rtcm->msg;
         int nstr = 0;
-        nstr += sprintf(pstr + nstr, "%10.3f,%4i,%4i,%i,%i,%2i,%2i", rtcm->tow, rtcm->len+3, rtcm->type, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount);
+        nstr += sprintf(pstr + nstr, "%10.3f,%4i,%4i,%i,%3i,%i,%i,%2i,%2i", rtcm->tow, rtcm->len+3, rtcm->type, rtcm->seqno, rtcm->reserved, rtcm->sync, ret, rtcm->cur_obscount, rtcm->pre_obscount);
         if (rtcm->misorder == 3 || rtcm->misorder == 4) rtcm->misorder = 0;
         if (rtcm->numofmsg_obs > 1) /* more message */
         {
-            if ((int)rtcm->tow == 13137)
-                int i = 0;
             rtcm->etime = rtcm->tow;
             rtcm->dt = rtcm->tow - rtcm->tow_pre;
             if (fabs(rtcm->dt) < 0.001) /* same epoch */
@@ -601,7 +602,7 @@ extern int input_rtcm3_type(rtcm_buff_t *rtcm, unsigned char data, int fix_sync)
     {
         char* pstr = rtcm->msg;
         int nstr = 0;
-        nstr += sprintf(pstr + nstr, "%10.3f,%4i,%4i,%i,%i", rtcm->tow, rtcm->len + 3, rtcm->type, rtcm->sync, ret);
+        nstr += sprintf(pstr + nstr, "%10.3f,%4i,%4i,%i,%3i,%i,%i", rtcm->tow, rtcm->len + 3, rtcm->type, rtcm->seqno, rtcm->reserved, rtcm->sync, ret);
     }
     rtcm->slen += rtcm->len + 3;
     return ret;
@@ -680,6 +681,32 @@ extern int update_msm_sync_(uint8_t* buff, int nbyte, int sync)
         i += 12;    /* staid */
         i += 30;    /* tow */
         setbitu_(buff, i, 1, sync); i += 1; /* sync */
+        /* crc-24q */
+        crc = crc24q_(buff, len);
+        setbitu_(buff, len * 8, 24, crc);
+        ret = 1;
+    }
+    return ret;
+}
+extern int update_msm_seqno(uint8_t* buff, int nbyte, int seqno, int reserved)
+{
+    int len = 0, i = 24, type = 0;
+    int crc = 0;
+    int ret = 0;
+    if (buff[0] != RTCM3PREAMB || nbyte < 6) return ret;
+    len = getbitu_(buff, 14, 10) + 3; /* length without parity */
+    if (nbyte < (len + 3)) return ret;
+
+    i = 24; /* type */
+    type = getbitu_(buff, i, 12); i += 12;
+
+    if (rtcm_obs_type(type))
+    {
+        i += 12;    /* staid */
+        i += 30;    /* tow */
+        i +=  1;    /* sync */
+        setbitu_(buff, i, 1, seqno   ); i += 1; /* seqno => 2^3=8 */
+        setbitu_(buff, i, 7, reserved); i += 7; /* reserved 267= 128 */
         /* crc-24q */
         crc = crc24q_(buff, len);
         setbitu_(buff, len * 8, 24, crc);

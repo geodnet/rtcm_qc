@@ -42,6 +42,8 @@ typedef struct {        /* RTCM control struct type */
     double tow;
     double pos[3];
 	int sync;
+    int seqno;
+    int reserved;
     int crc;
     int misorder;
     int slen;
@@ -78,6 +80,7 @@ int update_type_1005_1006_pos(uint8_t* buff, int nbyte, double* p);
 int decode_type1033_(uint8_t* buff, int len, int* staid, char* antdes, char* antsno, char* rectype, char* recver, char* recsno);
 int decode_type1230_(uint8_t* buff, int len, int* staid, int* glo_cp_align, double* glo_cp_bias);
 int update_msm_sync_(uint8_t* buff, int len, int sync);
+int update_msm_seqno(uint8_t* buff, int len, int seqno, int reserved);
 int encode_msm4_sync(uint8_t* buff, double tow, int type, int staid, int sync);
 int decode_type1029_(uint8_t* buff, int len, int* staid, char* msg);
 
